@@ -84,7 +84,7 @@ Example:
 
 
 
-`GET /transactions/from/<username>/` - returns a list of all transactions sent from `<username>. If no transactions exist, returns an empty list.`
+`GET /transactions/from/<username>/` - returns a list of all transactions sent from `<username>`. If no transactions exist, returns an empty list.
 
 Example:
 
