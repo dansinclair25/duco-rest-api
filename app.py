@@ -109,7 +109,7 @@ def user_transactions(username):
         
     return jsonify(transactions)
 
-@app.route('/transactions/<sender>/to/<recipient>', methods=['GET'])
+@app.route('/transactions/sender/<sender>/recipient/<recipient>', methods=['GET'])
 def transactions_from_to(sender, recipient):
     transactions = []
     with sqlconn(TRANSACTIONS_DATABASE, timeout=DB_TIMEOUT) as conn:
@@ -123,30 +123,21 @@ def transactions_from_to(sender, recipient):
         
     return jsonify(transactions)
 
-@app.route('/transactions/to/<recipient>', methods=['GET'])
-def transactions_to(recipient):
+@app.route('/transactions/<key>/<username>', methods=['GET'])
+def transactions_from(key, username):
     transactions = []
-    with sqlconn(TRANSACTIONS_DATABASE, timeout=DB_TIMEOUT) as conn:
-        datab = conn.cursor()
-        datab.execute(
-            """SELECT * FROM Transactions 
-            WHERE recipient = ?""", (recipient,))
-        
-        transactions = [_row_to_transaction(row) for row in datab.fetchall()]
-        
-    return jsonify(transactions)
+    
+    if key in ['sender', 'recipient']:
+        db_key = 'username' if key == 'sender' else 'recipient'
+        with sqlconn(TRANSACTIONS_DATABASE, timeout=DB_TIMEOUT) as conn:
+            datab = conn.cursor()
+            datab.execute(
+                'SELECT * FROM Transactions WHERE '
+                + db_key
+                + '= ?', (username,))
 
-@app.route('/transactions/from/<sender>', methods=['GET'])
-def transactions_from(sender):
-    transactions = []
-    with sqlconn(TRANSACTIONS_DATABASE, timeout=DB_TIMEOUT) as conn:
-        datab = conn.cursor()
-        datab.execute(
-            """SELECT * FROM Transactions 
-            WHERE username = ?""", (sender,))
-        
-        transactions = [_row_to_transaction(row) for row in datab.fetchall()]
-        
+            transactions = [_row_to_transaction(row) for row in datab.fetchall()]
+
     return jsonify(transactions)
 
 
@@ -183,10 +174,16 @@ def user_miners(username):
 #                                             #
 
 def _get_api_data():
+    data = {}
     with open(API_JSON_URI, 'r') as f:
-        return json.load(f)
+        try:
+            data = json.load(f)
+        except:
+            pass
+    
+    return data
 
-@app.route('/', methods=['GET'])
+@app.route('/api', methods=['GET'])
 def get_api_data():
     return jsonify(_get_api_data())
 
