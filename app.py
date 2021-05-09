@@ -189,7 +189,7 @@ def create_app():
                     miners.append(_row_to_miner(row))
             
             minersapi = miners
-            sleep(5)
+            sleep(20)
 
 
     @app.route('/miners',
