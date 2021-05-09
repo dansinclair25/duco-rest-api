@@ -1,4 +1,5 @@
-import os, json
+import os
+import json
 from flask import Flask, request, jsonify
 from sqlite3 import connect as sqlconn
 import Server
@@ -8,7 +9,7 @@ try:
     CRYPTO_DATABASE = Server.DATABASE
     TRANSACTIONS_DATABASE = Server.CONFIG_TRANSACTIONS
     API_JSON_URI = 'api.json'
-    MINERS_JSON_URI = 'miners.json'
+    MINERS_JSON_URI = Server.CONFIG_MINERAPI
 
 except:
     DB_TIMEOUT = 10
@@ -16,10 +17,9 @@ except:
     CRYPTO_DATABASE = os.path.join(CONFIG_BASE_DIR, 'crypto_database.db')
     TRANSACTIONS_DATABASE = os.path.join(CONFIG_BASE_DIR, "transactions.db")
     API_JSON_URI = os.path.join(CONFIG_BASE_DIR, 'api.json')
-    MINERS_JSON_URI = os.path.join(CONFIG_BASE_DIR, 'miners.json')
+    MINERS_DATABASE = os.path.join(CONFIG_BASE_DIR, 'minerapi.db')
 
 app = Flask(__name__)
-
 
 
 #                                                  #
@@ -32,7 +32,9 @@ def _row_to_balance(row):
         'balance': float(row[3])
     }
 
-@app.route('/balances', methods=['GET'])
+
+@app.route('/balances',
+           methods=['GET'])
 def all_balances():
     balances = []
     with sqlconn(CRYPTO_DATABASE, timeout=DB_TIMEOUT) as conn:
@@ -50,7 +52,9 @@ def all_balances():
 
     return jsonify(balances)
 
-@app.route('/balances/<username>', methods=['GET'])
+
+@app.route('/balances/<username>',
+           methods=['GET'])
 def user_balances(username):
     balance = {}
     with sqlconn(CRYPTO_DATABASE, timeout=DB_TIMEOUT) as conn:
@@ -67,7 +71,6 @@ def user_balances(username):
     return jsonify(balance)
 
 
-
 #                                                      #
 # =================== TRANSACTIONS =================== #
 #                                                      #
@@ -80,20 +83,24 @@ def _row_to_transaction(row):
         'amount': float(row[3]),
         'hash': str(row[4]),
         'memo': str(row[5])
-    }    
+    }
 
-@app.route('/transactions', methods=['GET'])
+
+@app.route('/transactions',
+           methods=['GET'])
 def all_transactions():
     transactions = []
     with sqlconn(TRANSACTIONS_DATABASE, timeout=DB_TIMEOUT) as conn:
         datab = conn.cursor()
         datab.execute("SELECT * FROM Transactions")
-        
+
         transactions = [_row_to_transaction(row) for row in datab.fetchall()]
-        
+
     return jsonify(transactions)
 
-@app.route('/transactions/<username>', methods=['GET'])
+
+@app.route('/transactions/<username>',
+           methods=['GET'])
 def user_transactions(username):
     transactions = []
     with sqlconn(TRANSACTIONS_DATABASE, timeout=DB_TIMEOUT) as conn:
@@ -102,12 +109,14 @@ def user_transactions(username):
             """SELECT * FROM Transactions 
             WHERE username = ? OR 
             recipient = ?""", (username, username))
-        
+
         transactions = [_row_to_transaction(row) for row in datab.fetchall()]
-        
+
     return jsonify(transactions)
 
-@app.route('/transactions/sender/<sender>/recipient/<recipient>', methods=['GET'])
+
+@app.route('/transactions/sender/<sender>/recipient/<recipient>',
+           methods=['GET'])
 def transactions_from_to(sender, recipient):
     transactions = []
     with sqlconn(TRANSACTIONS_DATABASE, timeout=DB_TIMEOUT) as conn:
@@ -116,15 +125,17 @@ def transactions_from_to(sender, recipient):
             """SELECT * FROM Transactions 
             WHERE username = ? AND 
             recipient = ?""", (sender, recipient))
-        
+
         transactions = [_row_to_transaction(row) for row in datab.fetchall()]
-        
+
     return jsonify(transactions)
 
-@app.route('/transactions/<key>/<username>', methods=['GET'])
+
+@app.route('/transactions/<key>/<username>',
+           methods=['GET'])
 def transactions_from(key, username):
     transactions = []
-    
+
     if key in ['sender', 'recipient']:
         db_key = 'username' if key == 'sender' else 'recipient'
         with sqlconn(TRANSACTIONS_DATABASE, timeout=DB_TIMEOUT) as conn:
@@ -134,10 +145,10 @@ def transactions_from(key, username):
                 + db_key
                 + '= ?', (username,))
 
-            transactions = [_row_to_transaction(row) for row in datab.fetchall()]
+            transactions = [_row_to_transaction(
+                row) for row in datab.fetchall()]
 
     return jsonify(transactions)
-
 
 
 #                                                #
@@ -146,32 +157,38 @@ def transactions_from(key, username):
 
 def _get_miners():
     miners = []
-    with open(MINERS_JSON_URI, 'r') as f:
-        try:
-            data = json.load(f)
-            print(data)
-        except:
-            pass
-        for k, v in data.items():
-            miner = {'id': k}
-            for subK, subV in v.items():
-                miner[str(subK).lower()] = subV
-
-            miners.append(miner)
-    
-    print(len(miners))
+    with sqlconn(MINERS_JSON_URI, timeout=DB_TIMEOUT) as conn:
+        datab = conn.cursor()
+        datab.execute(
+            """SELECT *
+            FROM Miners""")
+        """ Not sure if this is the best way to do this """
+        for row in datab.fetchall():
+            miners.append({
+                "threadid":   row[0],
+                "username":   row[1],
+                "hashrate":   row[2],
+                "sharetime":  row[3],
+                "accepted":   row[4],
+                "rejected":   row[5],
+                "diff":       row[6],
+                "software":   row[7],
+                "identifier": row[8],
+                "algorithm":  row[9]})
     return miners
 
-@app.route('/miners', methods=['GET'])
+
+@app.route('/miners',
+           methods=['GET'])
 def all_miners():
     return jsonify(_get_miners())
 
 
-@app.route('/miners/<username>', methods=['GET'])
+@app.route('/miners/<username>',
+           methods=['GET'])
 def user_miners(username):
     miners = [m for m in _get_miners() if m['user'] == username]
     return jsonify(miners)
-
 
 
 #                                             #
@@ -185,13 +202,14 @@ def _get_api_data():
             data = json.load(f)
         except:
             pass
-    
+
     return data
 
-@app.route('/api', methods=['GET'])
+
+@app.route('/api',
+           methods=['GET'])
 def get_api_data():
     return jsonify(_get_api_data())
-
 
 
 if __name__ == '__main__':
