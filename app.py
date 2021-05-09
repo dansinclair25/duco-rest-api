@@ -1,24 +1,22 @@
 import os, json
 from flask import Flask, request, jsonify
 from sqlite3 import connect as sqlconn
+import Server
 
 try:
-    import Server
     DB_TIMEOUT = Server.DB_TIMEOUT
     CRYPTO_DATABASE = Server.DATABASE
     TRANSACTIONS_DATABASE = Server.CONFIG_TRANSACTIONS
-    MINERS = Server.minerapi.copy()
     API_JSON_URI = 'api.json'
+    MINERS_JSON_URI = 'miners.json'
 
 except:
     DB_TIMEOUT = 10
     CONFIG_BASE_DIR = "../duco-rest-api-config"
     CRYPTO_DATABASE = os.path.join(CONFIG_BASE_DIR, 'crypto_database.db')
     TRANSACTIONS_DATABASE = os.path.join(CONFIG_BASE_DIR, "transactions.db")
-    with open(os.path.join(CONFIG_BASE_DIR, 'miners.json'), 'r') as f:
-        MINERS = json.load(f)
     API_JSON_URI = os.path.join(CONFIG_BASE_DIR, 'api.json')
-
+    MINERS_JSON_URI = os.path.join(CONFIG_BASE_DIR, 'miners.json')
 
 app = Flask(__name__)
 
@@ -148,13 +146,20 @@ def transactions_from(key, username):
 
 def _get_miners():
     miners = []
-    for k, v in MINERS.items():
-        miner = {'id': k}
-        for subK, subV in v.items():
-            miner[str(subK).lower()] = subV
+    with open(MINERS_JSON_URI, 'r') as f:
+        try:
+            data = json.load(f)
+            print(data)
+        except:
+            pass
+        for k, v in data.items():
+            miner = {'id': k}
+            for subK, subV in v.items():
+                miner[str(subK).lower()] = subV
 
-        miners.append(miner)
+            miners.append(miner)
     
+    print(len(miners))
     return miners
 
 @app.route('/miners', methods=['GET'])
