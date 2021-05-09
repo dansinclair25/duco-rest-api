@@ -2,14 +2,14 @@ import os
 import json
 from flask import Flask, request, jsonify
 from sqlite3 import connect as sqlconn
-import Server
 
 try:
+    import Server
     DB_TIMEOUT = Server.DB_TIMEOUT
     CRYPTO_DATABASE = Server.DATABASE
     TRANSACTIONS_DATABASE = Server.CONFIG_TRANSACTIONS
     API_JSON_URI = 'api.json'
-    MINERS_JSON_URI = Server.CONFIG_MINERAPI
+    MINERS_DATABASE = Server.CONFIG_MINERAPI
 
 except:
     DB_TIMEOUT = 10
@@ -155,39 +155,50 @@ def transactions_from(key, username):
 # =================== MINERS =================== #
 #                                                #
 
-def _get_miners():
+def _row_to_miner(row):
+    return {
+        "threadid":   row[0],
+        "username":   row[1],
+        "hashrate":   row[2],
+        "sharetime":  row[3],
+        "accepted":   row[4],
+        "rejected":   row[5],
+        "diff":       row[6],
+        "software":   row[7],
+        "identifier": row[8],
+        "algorithm":  row[9]
+    }
+
+@app.route('/miners',
+           methods=['GET'])
+def all_miners():
     miners = []
-    with sqlconn(MINERS_JSON_URI, timeout=DB_TIMEOUT) as conn:
+    with sqlconn(MINERS_DATABASE, timeout=DB_TIMEOUT) as conn:
         datab = conn.cursor()
         datab.execute(
             """SELECT *
             FROM Miners""")
         """ Not sure if this is the best way to do this """
         for row in datab.fetchall():
-            miners.append({
-                "threadid":   row[0],
-                "username":   row[1],
-                "hashrate":   row[2],
-                "sharetime":  row[3],
-                "accepted":   row[4],
-                "rejected":   row[5],
-                "diff":       row[6],
-                "software":   row[7],
-                "identifier": row[8],
-                "algorithm":  row[9]})
-    return miners
+            miners.append(_row_to_miner(row))
 
-
-@app.route('/miners',
-           methods=['GET'])
-def all_miners():
-    return jsonify(_get_miners())
+    return jsonify(miners)
 
 
 @app.route('/miners/<username>',
            methods=['GET'])
 def user_miners(username):
-    miners = [m for m in _get_miners() if m['user'] == username]
+    miners = []
+    with sqlconn(MINERS_DATABASE, timeout=DB_TIMEOUT) as conn:
+        datab = conn.cursor()
+        datab.execute(
+            """SELECT *
+            FROM Miners
+            WHERE username = ?""", (username,))
+        """ Not sure if this is the best way to do this """
+        for row in datab.fetchall():
+            miners.append(_row_to_miner(row))
+
     return jsonify(miners)
 
 
