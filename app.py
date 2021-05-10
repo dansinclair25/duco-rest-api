@@ -27,6 +27,60 @@ def create_app():
     cors = CORS(app, resources={r"*": {"origins": "*"}})
 
 
+    def _create_sql_filter(count, key, value):
+        if count == 0:
+            statement = [f'WHERE {key}']
+        else:
+            statement = [f'AND {key}']
+
+        comparison_components = value.split(':')
+        arg = value
+        if len(comparison_components) == 1:
+            statement.append('=')
+        else:
+            if comparison_components[0] == 'lt':
+                statement.append('<')
+            elif comparison_components[0] == 'lte':
+                statement.append('<=')
+            elif comparison_components[0] == 'gt':
+                statement.append('>')
+            elif comparison_components[0] == 'gte':
+                statement.append('>=')
+            elif comparison_components[0] == 'ne':
+                statement.append('<>')
+
+            arg = comparison_components[1]
+
+        statement += '?'
+
+        return (' '.join(statement), arg)
+
+    def _create_sql_sort(field):
+        statement = [f'ORDER BY']
+        comparison_components = field.split(':')
+        statement.append(comparison_components[0])
+        try:
+            statement.append(comparison_components[1])
+        except:
+            pass
+        
+        return ' '.join(statement)
+
+    def _create_sql(sql, request_args):
+        statement = [sql]
+        args = []
+        filter_count = 0
+        for k, v in request_args.items():
+            if str(k).lower() == 'sort':
+                statement.append(_create_sql_sort(v))
+            else:
+                fil = _create_sql_filter(filter_count, k, v)
+                statement.append(fil[0])
+                args.append(fil[1])
+                filter_count += 1
+
+        return (' '.join(statement), args)
+
     #                                                  #
     # =================== BALANCES =================== #
     #                                                  #
@@ -42,18 +96,15 @@ def create_app():
             methods=['GET'])
     def all_balances():
         balances = []
+            
+        sql_statement = _create_sql('SELECT * FROM Users', request.args)
+
         with sqlconn(CRYPTO_DATABASE, timeout=DB_TIMEOUT) as conn:
             datab = conn.cursor()
-            datab.execute(
-                """SELECT *
-                FROM Users
-                ORDER BY balance DESC""")
+            
+            datab.execute(sql_statement[0], sql_statement[1])
             for row in datab.fetchall():
-                if float(row[3]) > 0:
-                    balances.append(_row_to_balance(row))
-                else:
-                    # Stop when rest of the balances are just empty accounts
-                    break
+                balances.append(_row_to_balance(row))
 
         return jsonify(balances)
 
@@ -95,9 +146,18 @@ def create_app():
             methods=['GET'])
     def all_transactions():
         transactions = []
+        args = request.args.to_dict()
+
+        ## The DB uses `username` for `sender`
+        if args['sender']:
+            args['username'] = args['sender']
+            del args['sender']
+
+        sql_statement = _create_sql('SELECT * FROM Transactions', args)
+
         with sqlconn(TRANSACTIONS_DATABASE, timeout=DB_TIMEOUT) as conn:
             datab = conn.cursor()
-            datab.execute("SELECT * FROM Transactions")
+            datab.execute(sql_statement[0], sql_statement[1])
 
             transactions = [_row_to_transaction(row) for row in datab.fetchall()]
 
@@ -225,7 +285,7 @@ def create_app():
         return data
 
 
-    @app.route('/api',
+    @app.route('/',
             methods=['GET'])
     def get_api_data():
         return jsonify(_get_api_data())
