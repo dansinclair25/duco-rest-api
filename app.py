@@ -258,6 +258,8 @@ def create_app():
     def all_miners():
         global minersapi
         miners = minersapi.copy()
+        if 'username' in request.args.keys():
+            miners = [m for m in miners if m['username'] == request.args['username']]
         return jsonify(miners)
 
 
