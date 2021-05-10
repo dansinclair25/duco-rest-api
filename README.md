@@ -1,11 +1,11 @@
-# duco-rest-api
+duco-rest-api
 
 This is a simple REST API using Flask that links in directly to the DUCO databases to return transactions, and balances.
 
 ## Usage
 
 1. Install requirements using `pip3 install -r requirements.txt`
-2. Run it using `flask run` 
+2. Run it using `gunicorn --bind 0.0.0.0:5000 wsgi:app` 
 
 ## Endpoints
 
@@ -13,7 +13,6 @@ This is a simple REST API using Flask that links in directly to the DUCO databas
 `GET /transactions` - returns a list of all transactions. If no transactions exist, returns an empty list.
 
 Example:
-
 `GET /transactions`
 
 ```json
@@ -47,120 +46,11 @@ Example:
 
 
 
-`GET /transactions/<username>` - returns a list of all transactions both sent and received by `<username>` . If no transactions exist, returns an empty list.
-
-Example:
-
- `GET /transactions/revox`
-
-```json
-[
-  {
-    "amount": 5,
-    "datetime": "18/04/2021 09:19:32",
-    "hash": "d2b690c337fa7b74b97c52ae8d1fa3bbab31034b",
-    "memo": "abc",
-    "recipient": "Bilaboz",
-    "sender": "revox"
-  },
-  {
-    "amount": 1.5,
-    "datetime": "18/04/2021 09:20:21",
-    "hash": "2c3829febd60906580065c95ebff809d3977dc2b",
-    "memo": "-",
-    "recipient": "revox",
-    "sender": "coinexchange"
-  },
-  {
-    "amount": 5,
-    "datetime": "18/04/2021 09:27:16",
-    "hash": "b11019a12589831ccab2447bb69b08de51206693",
-    "memo": "-",
-    "recipient": "ATAR4XY",
-    "sender": "revox"
-  }
-]
-```
-
-
-
-`GET /transactions/sender/<username>/` - returns a list of all transactions sent from `<username>`. If no transactions exist, returns an empty list.
-
-Example:
-
- `GET /transactions/sender/revox`
-
-```json
-[
-  {
-    "amount": 5,
-    "datetime": "18/04/2021 09:19:32",
-    "hash": "d2b690c337fa7b74b97c52ae8d1fa3bbab31034b",
-    "memo": "abc",
-    "recipient": "Bilaboz",
-    "sender": "revox"
-  },
-  {
-    "amount": 5,
-    "datetime": "18/04/2021 09:27:16",
-    "hash": "b11019a12589831ccab2447bb69b08de51206693",
-    "memo": "-",
-    "recipient": "ATAR4XY",
-    "sender": "revox"
-  }
-]
-```
-
-
-
-`GET /transactions/recipient/<username>` - returns a list of all transactions sent to `<username>`. If no transactions exist, returns an empty list.
-
-Example:
-
- `GET /transactions/recipient/revox`
-
-```json
-[
-  {
-    "amount": 1.5,
-    "datetime": "18/04/2021 09:20:21",
-    "hash": "2c3829febd60906580065c95ebff809d3977dc2b",
-    "memo": "-",
-    "recipient": "revox",
-    "sender": "coinexchange"
-  }
-]
-```
-
-
-
-`GET /transactions/sender/<sender>/recipient/<recipient>` - returns a list of all transactions sent from `<sender>` to `<recipient>`. If no transactions exist, returns an empty list.
-
-Example:
-
- `GET /transactions/from/revox/to/Bilaboz`
-
-```json
-[
-  {
-    "amount": 5,
-    "datetime": "18/04/2021 09:19:32",
-    "hash": "d2b690c337fa7b74b97c52ae8d1fa3bbab31034b",
-    "memo": "abc",
-    "recipient": "Bilaboz",
-    "sender": "revox"
-  }
-]
-```
-
-
-
 ### Balances
 
 `GET /balances` - returns a list of all balances. If no balances exist, returns an empty list.
 
 Example:
-
 `GET /balances`
 
 ```json
@@ -182,27 +72,11 @@ Example:
 
 
 
-`GET /balances/<username>` - returns the balance of `<username>`. If no balance exists, returns an empty dictionary.
-
-Exmaple:
-
-`GET /balances/revox`
-
-```json
-{
-  "balance": 2499.283867309529,
-  "username": "revox"
-}
-```
-
-
-
 ### Miners
 
 `GET /miners` - returns a list of all miners. If no miners exist, returns an empty list.
 
 Example:
-
 `GET /miners`
 
 ```json
@@ -238,39 +112,12 @@ Example:
 
 
 
-`GET /miners/<username>` - returns a list of miners for `<username>`. If no miners exist, returns an empty list
-
-Example:
-
-`GET /miners/dansinclair25`
-
-```json
-[
-    {
-    "accepted": 1234,
-    "algorithm": "DUCO-S1",
-    "diff": 98765,
-    "hashrate": 169000,
-    "id": "139797360421968",
-    "identifier": "PC Miner 1",
-    "is estimated": "False",
-    "rejected": 0,
-    "sharetime": 2.065604,
-    "software": "Official PC Miner (DUCO-S1) v2.45",
-    "user": "dansinclair25"
-  }
-]
-```
-
-
-
 ### API Data
 
-`GET /api` - return a object containing all of the API Data available in the `api.json` file
+`GET /` - return a object containing all of the API Data available in the `api.json` file
 
 Example:
-
-`GET /api`
+`GET /`
 
 ```json
 {
@@ -313,3 +160,22 @@ Example:
 }
 ```
 
+
+
+### Filtering & Sorting
+
+For the transactions, balances, and miners endpoints you can filter for results using query string parameters using any of the keys returned in an object;
+`GET /transactions?sender=revox`
+`GET /balances?username=revox`
+`GET /miners?username=revox`
+
+If the request would return more than 1 result, you can chain the filters;
+`GET /transactions?sender=revox&recipient=bilboz`
+
+For the transactions and balances endpoints, you can also sort the returned results by a key;
+`GET /transactions?sort=amount:desc`
+`GET /balances?sort=balance:asc` 
+Note that ommiting any direction of sorting (i.e. `?sort=balance`) will return results in ascending order
+
+Filtering and sorting can also be chained;
+`GET /transactions?sender=revox&recipient=bilboz&sort=amount:desc`
