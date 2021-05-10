@@ -110,18 +110,34 @@ def create_app():
         
         return ' '.join(statement)
 
+    def _create_sql_limit(amount):
+        return ('LIMIT ?', amount)
+
     def _create_sql(sql, request_args):
         statement = [sql]
         args = []
         filter_count = 0
+
         for k, v in request_args.items():
-            if str(k).lower() == 'sort':
-                statement.append(_create_sql_sort(v))
-            else:
+            if str(k).lower() not in ['sort', 'limit']:
                 fil = _create_sql_filter(filter_count, k, v)
                 statement.append(fil[0])
                 args.append(fil[1])
                 filter_count += 1
+
+        try:
+            sort = request_args['sort']
+            statement.append(_create_sql_sort(sort))
+        except:
+            pass
+
+        try:
+            limit = request_args['limit']
+            limit = _create_sql_limit(int(limit))
+            statement.append(limit[0])
+            args.append(limit[1])
+        except:
+            pass
 
         return (' '.join(statement), args)
 
@@ -202,6 +218,7 @@ def create_app():
 
         sql_statement = _create_sql('SELECT * FROM Transactions', args)
 
+        print(sql_statement)
         with sqlconn(CONFIG_TRANSACTIONS, timeout=DB_TIMEOUT) as conn:
             datab = conn.cursor()
             datab.execute(sql_statement[0], sql_statement[1])
