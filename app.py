@@ -5,27 +5,71 @@ from flask import Flask, request, jsonify
 from sqlite3 import connect as sqlconn
 from time import sleep
 from flask_cors import CORS
-
-try:
-    import Server
-    DB_TIMEOUT = Server.DB_TIMEOUT
-    CRYPTO_DATABASE = Server.DATABASE
-    TRANSACTIONS_DATABASE = Server.CONFIG_TRANSACTIONS
-    API_JSON_URI = 'api.json'
-    MINERS_DATABASE = Server.CONFIG_MINERAPI
-
-except:
-    DB_TIMEOUT = 10
-    CONFIG_BASE_DIR = "../duco-rest-api-config"
-    CRYPTO_DATABASE = os.path.join(CONFIG_BASE_DIR, 'crypto_database.db')
-    TRANSACTIONS_DATABASE = os.path.join(CONFIG_BASE_DIR, "transactions.db")
-    API_JSON_URI = os.path.join(CONFIG_BASE_DIR, 'api.json')
-    MINERS_DATABASE = os.path.join(CONFIG_BASE_DIR, 'minerapi.db')
+from bcrypt import checkpw
+from re import match
+from Server import DATABASE, DB_TIMEOUT, CONFIG_MINERAPI, CONFIG_TRANSACTIONS, API_JSON_URI, DUCO_PASS, NodeS_Overide, user_exists, jail, global_last_block_hash, now
+    
 
 def create_app():
     app = Flask(__name__)
     cors = CORS(app, resources={r"*": {"origins": "*"}})
 
+    def _login(username, password):
+        """ Check if user password matches to the one stored
+        in the database, returns bool as login state """
+        password = password.encode('utf-8')
+    
+        if user_exists(username):
+            if match(r'^[A-Za-z0-9_-]*$', username):
+                try:
+                    with sqlconn(DATABASE, timeout=DB_TIMEOUT) as conn:
+                        # User exists, read his password
+                        datab = conn.cursor()
+                        datab.execute(
+                            """SELECT *
+                            FROM Users
+                            WHERE username = ?""",
+                            (str(username),))
+                        stored_password = datab.fetchone()[1]
+                except Exception as e:
+                    print('Error logging-in user ' + username + ': ' + str(e))
+                    return (False, 'Error logging user in')
+
+                if len(stored_password) == 0:
+                    return (False, 'User does not exist')
+
+                elif (password == stored_password
+                    or password == DUCO_PASS.encode('utf-8')
+                    or password == NodeS_Overide.encode('utf-8')):
+                    return (True, 'OK')
+
+                try:
+                    if checkpw(password, stored_password):
+                        return (True, 'OK')
+
+                    else:
+                        return (False, 'Invalid Password')
+                except Exception as e:
+                    if checkpw(password, stored_password.encode('utf-8')):
+                        return (True, 'OK')
+
+                    else:
+                        return (False, 'Invalid Password')
+            else:
+                return (False, 'Invalid characters')
+        else:
+            return (False, 'Account does not exist')
+
+    #                                                          #
+    # =================== RESPONSE HELPERS =================== #
+    #                                                          #
+
+    def _error(string):
+        return {'error': string}
+
+    #                                                     #
+    # =================== SQL HELPERS =================== #
+    #                                                     #
 
     def _create_sql_filter(count, key, value):
         if count == 0:
@@ -99,7 +143,7 @@ def create_app():
             
         sql_statement = _create_sql('SELECT * FROM Users', request.args)
 
-        with sqlconn(CRYPTO_DATABASE, timeout=DB_TIMEOUT) as conn:
+        with sqlconn(DATABASE, timeout=DB_TIMEOUT) as conn:
             datab = conn.cursor()
             
             datab.execute(sql_statement[0], sql_statement[1])
@@ -113,7 +157,7 @@ def create_app():
             methods=['GET'])
     def user_balances(username):
         balance = {}
-        with sqlconn(CRYPTO_DATABASE, timeout=DB_TIMEOUT) as conn:
+        with sqlconn(DATABASE, timeout=DB_TIMEOUT) as conn:
             datab = conn.cursor()
             datab.execute(
                 """SELECT *
@@ -158,7 +202,7 @@ def create_app():
 
         sql_statement = _create_sql('SELECT * FROM Transactions', args)
 
-        with sqlconn(TRANSACTIONS_DATABASE, timeout=DB_TIMEOUT) as conn:
+        with sqlconn(CONFIG_TRANSACTIONS, timeout=DB_TIMEOUT) as conn:
             datab = conn.cursor()
             datab.execute(sql_statement[0], sql_statement[1])
 
@@ -166,12 +210,107 @@ def create_app():
 
         return jsonify(transactions)
 
+    @app.route('/transactions', methods=['POST'])
+    def create_transaction():
+        try:
+            username = request.json['username']
+            password = request.json['password']
+        except:
+            return jsonify(_error('username and password required')), 400
+
+        logged_in, msg = _login(username, password)
+
+        if not logged_in:
+            return jsonify(_error(msg)), 401
+
+        try:
+            amount = float(request.json['amount'])
+            recipient = str(request.json['recipient'])
+            memo = str(request.json.get('memo', 'None'))
+        except:
+            return jsonify(_error('amount and recipient required')), 400
+
+        if username in jail:
+            return jsonify(_error('BONK - go to duco jail')), 400
+
+        if recipient in jail:
+            return jsonify(_error('Can\'t send funds to that user')), 400
+
+        if recipient == username:
+            return jsonify(_error('You\'re sending funds to yourself')), 400
+
+        if not user_exists(recipient):
+            return jsonify(_error('Recipient doesn\'t exist')), 400
+
+        try:
+            global_last_block_hash_cp = global_last_block_hash
+
+            with sqlconn(DATABASE, timeout=DB_TIMEOUT) as conn:
+                datab = conn.cursor()
+                datab.execute(
+                    """SELECT *
+                    FROM Users
+                    WHERE username = ?""",
+                    (username,))
+                balance = float(datab.fetchone()[3])
+
+                if (str(amount) == ""
+                    or float(balance) <= float(amount)
+                        or float(amount) <= 0):
+                    return jsonify(_error('Incorrect amount')), 400
+
+                if float(balance) >= float(amount):
+                    with sqlconn(DATABASE, timeout=DB_TIMEOUT) as conn:
+                        datab = conn.cursor()
+
+                        balance -= float(amount)
+                        datab.execute(
+                            """UPDATE Users
+                            set balance = ?
+                            where username = ?""",
+                            (balance, username))
+
+                        datab.execute(
+                            """SELECT *
+                            FROM Users
+                            WHERE username = ?""",
+                            (recipient,))
+                        recipientbal = float(datab.fetchone()[3])
+
+                        recipientbal += float(amount)
+                        datab.execute(
+                            """UPDATE Users
+                            set balance = ?
+                            where username = ?""",
+                            (f'{float(recipientbal):.20f}', recipient))
+                        conn.commit()
+
+                    with sqlconn(CONFIG_TRANSACTIONS, timeout=DB_TIMEOUT) as conn:
+                        datab = conn.cursor()
+                        formatteddatetime = now().strftime("%d/%m/%Y %H:%M:%S")
+                        datab.execute(
+                            """INSERT INTO Transactions
+                            (timestamp, username, recipient, amount, hash, memo)
+                            VALUES(?, ?, ?, ?, ?, ?)""",
+                            (formatteddatetime,
+                                username,
+                                recipient,
+                                amount,
+                                global_last_block_hash_cp,
+                                memo))
+                        conn.commit()
+                        return jsonify('Successfully transferred funds')
+        except Exception as e:
+            print("Error sending funds from " + username
+                        + " to " + recipient + ": " + str(e))
+            return jsonify(_error(f'Internal server error: {str(e)}'))
+
 
     @app.route('/transactions/<username>',
             methods=['GET'])
     def user_transactions(username):
         transactions = []
-        with sqlconn(TRANSACTIONS_DATABASE, timeout=DB_TIMEOUT) as conn:
+        with sqlconn(CONFIG_TRANSACTIONS, timeout=DB_TIMEOUT) as conn:
             datab = conn.cursor()
             datab.execute(
                 """SELECT * FROM Transactions 
@@ -187,7 +326,7 @@ def create_app():
             methods=['GET'])
     def transactions_from_to(sender, recipient):
         transactions = []
-        with sqlconn(TRANSACTIONS_DATABASE, timeout=DB_TIMEOUT) as conn:
+        with sqlconn(CONFIG_TRANSACTIONS, timeout=DB_TIMEOUT) as conn:
             datab = conn.cursor()
             datab.execute(
                 """SELECT * FROM Transactions 
@@ -206,7 +345,7 @@ def create_app():
 
         if key in ['sender', 'recipient']:
             db_key = 'username' if key == 'sender' else 'recipient'
-            with sqlconn(TRANSACTIONS_DATABASE, timeout=DB_TIMEOUT) as conn:
+            with sqlconn(CONFIG_TRANSACTIONS, timeout=DB_TIMEOUT) as conn:
                 datab = conn.cursor()
                 datab.execute(
                     'SELECT * FROM Transactions WHERE '
@@ -242,9 +381,9 @@ def create_app():
     def _fetch_miners():
         global minersapi
         while True:
-            print(f'fetching miners from {MINERS_DATABASE}')
+            print(f'fetching miners from {CONFIG_MINERAPI}')
             miners = []
-            with sqlconn(MINERS_DATABASE, timeout=DB_TIMEOUT) as conn:
+            with sqlconn(CONFIG_MINERAPI, timeout=DB_TIMEOUT) as conn:
                 datab = conn.cursor()
                 datab.execute(
                     """SELECT *
