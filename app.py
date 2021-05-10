@@ -4,6 +4,7 @@ import threading
 from flask import Flask, request, jsonify
 from sqlite3 import connect as sqlconn
 from time import sleep
+from flask_cors import CORS
 
 try:
     import Server
@@ -21,9 +22,14 @@ except:
     API_JSON_URI = os.path.join(CONFIG_BASE_DIR, 'api.json')
     MINERS_DATABASE = os.path.join(CONFIG_BASE_DIR, 'minerapi.db')
 
-
 def create_app():
     app = Flask(__name__)
+    cors = CORS(app, resources={r"*": {"origins": "*"}})
+    
+    @app.route("/")
+    def helloWorld():
+        return "allo"
+
 
     #                                                  #
     # =================== BALANCES =================== #
@@ -157,7 +163,7 @@ def create_app():
     #                                                #
     # =================== MINERS =================== #
     #                                                #
-
+    global minersapi
     minersapi = []
 
     def _row_to_miner(row):
@@ -191,7 +197,6 @@ def create_app():
             minersapi = miners
             sleep(20)
 
-
     @app.route('/miners',
             methods=['GET'])
     def all_miners():
@@ -203,6 +208,7 @@ def create_app():
     @app.route('/miners/<username>',
             methods=['GET'])
     def user_miners(username):
+        global minersapi
         miners = minersapi.copy()
 
         return jsonify([m for m in miners if m['username'] == username])
