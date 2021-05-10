@@ -149,9 +149,12 @@ def create_app():
         args = request.args.to_dict()
 
         ## The DB uses `username` for `sender`
-        if args['sender']:
-            args['username'] = args['sender']
-            del args['sender']
+        try:
+            if args['sender']:
+                args['username'] = args['sender']
+                del args['sender']
+        except:
+            pass
 
         sql_statement = _create_sql('SELECT * FROM Transactions', args)
 
