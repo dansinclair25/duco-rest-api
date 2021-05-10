@@ -46,6 +46,31 @@ Example:
 
 
 
+`POST /transactions` - send a payment to another user. If there is an error of any sort, returns 
+
+```json
+{"error": "some error message here"}
+```
+
+Example
+
+```json
+POST /transactions
+{
+    "username": "dansinclair25",
+    "password": "my_awesome_password",
+    "amount": 1,
+    "recipient": "treadstone42",
+    "memo": "Some optional message"
+}
+```
+
+```json
+"Successfully transferred funds"
+```
+
+
+
 ### Balances
 
 `GET /balances` - returns a list of all balances. If no balances exist, returns an empty list.
@@ -162,9 +187,9 @@ Example:
 
 
 
-### Filtering & Sorting
+### Filtering, Sorting, and Limiting
 
-For the transactions, balances, and miners endpoints you can filter for results using query string parameters using any of the keys returned in an object;
+For the transactions, balances, and miners `GET` endpoints you can filter for results using query string parameters using any of the keys returned in an object;
 `GET /transactions?sender=revox`
 `GET /balances?username=revox`
 `GET /miners?username=revox`
@@ -177,5 +202,8 @@ For the transactions and balances endpoints, you can also sort the returned resu
 `GET /balances?sort=balance:asc` 
 Note that ommiting any direction of sorting (i.e. `?sort=balance`) will return results in ascending order
 
-Filtering and sorting can also be chained;
-`GET /transactions?sender=revox&recipient=bilboz&sort=amount:desc`
+To limit the number of returned objects;
+`GET /transactions?sort=amount:desc&limit=10`
+
+Filtering, sorting, and limiting can also be chained;
+`GET /transactions?sender=revox&recipient=bilboz&sort=amount:desc&limit=10`
