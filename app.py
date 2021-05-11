@@ -227,100 +227,100 @@ def create_app():
 
         return jsonify(transactions)
 
-    @app.route('/transactions', methods=['POST'])
-    def create_transaction():
-        try:
-            username = request.json['username']
-            password = request.json['password']
-        except:
-            return jsonify(_error('username and password required')), 400
+    # @app.route('/transactions', methods=['POST'])
+    # def create_transaction():
+    #     try:
+    #         username = request.json['username']
+    #         password = request.json['password']
+    #     except:
+    #         return jsonify(_error('username and password required')), 400
 
-        logged_in, msg = _login(username, password)
+    #     logged_in, msg = _login(username, password)
 
-        if not logged_in:
-            return jsonify(_error(msg)), 401
+    #     if not logged_in:
+    #         return jsonify(_error(msg)), 401
 
-        try:
-            amount = float(request.json['amount'])
-            recipient = str(request.json['recipient'])
-            memo = str(request.json.get('memo', 'None'))
-        except:
-            return jsonify(_error('amount and recipient required')), 400
+    #     try:
+    #         amount = float(request.json['amount'])
+    #         recipient = str(request.json['recipient'])
+    #         memo = str(request.json.get('memo', 'None'))
+    #     except:
+    #         return jsonify(_error('amount and recipient required')), 400
 
-        if username in jail:
-            return jsonify(_error('BONK - go to duco jail')), 400
+    #     if username in jail:
+    #         return jsonify(_error('BONK - go to duco jail')), 400
 
-        if recipient in jail:
-            return jsonify(_error('Can\'t send funds to that user')), 400
+    #     if recipient in jail:
+    #         return jsonify(_error('Can\'t send funds to that user')), 400
 
-        if recipient == username:
-            return jsonify(_error('You\'re sending funds to yourself')), 400
+    #     if recipient == username:
+    #         return jsonify(_error('You\'re sending funds to yourself')), 400
 
-        if not user_exists(recipient):
-            return jsonify(_error('Recipient doesn\'t exist')), 400
+    #     if not user_exists(recipient):
+    #         return jsonify(_error('Recipient doesn\'t exist')), 400
 
-        try:
-            global_last_block_hash_cp = global_last_block_hash
+    #     try:
+    #         global_last_block_hash_cp = global_last_block_hash
 
-            with sqlconn(DATABASE, timeout=DB_TIMEOUT) as conn:
-                datab = conn.cursor()
-                datab.execute(
-                    """SELECT *
-                    FROM Users
-                    WHERE username = ?""",
-                    (username,))
-                balance = float(datab.fetchone()[3])
+    #         with sqlconn(DATABASE, timeout=DB_TIMEOUT) as conn:
+    #             datab = conn.cursor()
+    #             datab.execute(
+    #                 """SELECT *
+    #                 FROM Users
+    #                 WHERE username = ?""",
+    #                 (username,))
+    #             balance = float(datab.fetchone()[3])
 
-                if (str(amount) == ""
-                    or float(balance) <= float(amount)
-                        or float(amount) <= 0):
-                    return jsonify(_error('Incorrect amount')), 400
+    #             if (str(amount) == ""
+    #                 or float(balance) <= float(amount)
+    #                     or float(amount) <= 0):
+    #                 return jsonify(_error('Incorrect amount')), 400
 
-                if float(balance) >= float(amount):
-                    with sqlconn(DATABASE, timeout=DB_TIMEOUT) as conn:
-                        datab = conn.cursor()
+    #             if float(balance) >= float(amount):
+    #                 with sqlconn(DATABASE, timeout=DB_TIMEOUT) as conn:
+    #                     datab = conn.cursor()
 
-                        balance -= float(amount)
-                        datab.execute(
-                            """UPDATE Users
-                            set balance = ?
-                            where username = ?""",
-                            (balance, username))
+    #                     balance -= float(amount)
+    #                     datab.execute(
+    #                         """UPDATE Users
+    #                         set balance = ?
+    #                         where username = ?""",
+    #                         (balance, username))
 
-                        datab.execute(
-                            """SELECT *
-                            FROM Users
-                            WHERE username = ?""",
-                            (recipient,))
-                        recipientbal = float(datab.fetchone()[3])
+    #                     datab.execute(
+    #                         """SELECT *
+    #                         FROM Users
+    #                         WHERE username = ?""",
+    #                         (recipient,))
+    #                     recipientbal = float(datab.fetchone()[3])
 
-                        recipientbal += float(amount)
-                        datab.execute(
-                            """UPDATE Users
-                            set balance = ?
-                            where username = ?""",
-                            (f'{float(recipientbal):.20f}', recipient))
-                        conn.commit()
+    #                     recipientbal += float(amount)
+    #                     datab.execute(
+    #                         """UPDATE Users
+    #                         set balance = ?
+    #                         where username = ?""",
+    #                         (f'{float(recipientbal):.20f}', recipient))
+    #                     conn.commit()
 
-                    with sqlconn(CONFIG_TRANSACTIONS, timeout=DB_TIMEOUT) as conn:
-                        datab = conn.cursor()
-                        formatteddatetime = now().strftime("%d/%m/%Y %H:%M:%S")
-                        datab.execute(
-                            """INSERT INTO Transactions
-                            (timestamp, username, recipient, amount, hash, memo)
-                            VALUES(?, ?, ?, ?, ?, ?)""",
-                            (formatteddatetime,
-                                username,
-                                recipient,
-                                amount,
-                                global_last_block_hash_cp,
-                                memo))
-                        conn.commit()
-                        return jsonify('Successfully transferred funds')
-        except Exception as e:
-            print("Error sending funds from " + username
-                        + " to " + recipient + ": " + str(e))
-            return jsonify(_error(f'Internal server error: {str(e)}'))
+    #                 with sqlconn(CONFIG_TRANSACTIONS, timeout=DB_TIMEOUT) as conn:
+    #                     datab = conn.cursor()
+    #                     formatteddatetime = now().strftime("%d/%m/%Y %H:%M:%S")
+    #                     datab.execute(
+    #                         """INSERT INTO Transactions
+    #                         (timestamp, username, recipient, amount, hash, memo)
+    #                         VALUES(?, ?, ?, ?, ?, ?)""",
+    #                         (formatteddatetime,
+    #                             username,
+    #                             recipient,
+    #                             amount,
+    #                             global_last_block_hash_cp,
+    #                             memo))
+    #                     conn.commit()
+    #                     return jsonify('Successfully transferred funds')
+    #     except Exception as e:
+    #         print("Error sending funds from " + username
+    #                     + " to " + recipient + ": " + str(e))
+    #         return jsonify(_error(f'Internal server error: {str(e)}'))
 
 
     @app.route('/transactions/<username>',
@@ -451,7 +451,10 @@ def create_app():
     def get_api_data():
         return jsonify(_get_api_data())
 
-    threading.Thread(target=_fetch_miners).start()
+
+    t = threading.Thread(target=_fetch_miners)
+    t.daemon = True
+    t.start()
 
     return app
 
