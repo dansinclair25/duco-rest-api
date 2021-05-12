@@ -7,15 +7,6 @@ from flask_cors import CORS
 from bcrypt import checkpw
 from re import match
 from Server import DATABASE, DB_TIMEOUT, CONFIG_MINERAPI, CONFIG_TRANSACTIONS, API_JSON_URI, DUCO_PASS, NodeS_Overide, user_exists, jail, global_last_block_hash, now
-    
-
-# class RESTApp(Flask):
-
-#     def __init__(self):
-#         super(RESTApp, self).__init__(__name__)
-
-#         cors = CORS(self, resources={r"*": {"origins": "*"}})
-
 
 
 def create_app():
@@ -72,8 +63,11 @@ def create_app():
     # =================== RESPONSE HELPERS =================== #
     #                                                          #
 
-    def _error(string):
-        return {'error': string}
+    def _success(result, code: int=200):
+        return jsonify(success=True, result=result), code
+
+    def _error(string, code=400):
+        return jsonify(success=False, message=string), code
 
     #                                                     #
     # =================== SQL HELPERS =================== #
@@ -107,6 +101,19 @@ def create_app():
 
         return (' '.join(statement), arg)
 
+    def _create_sql_or_filter(keys, value):
+        statement = []
+        args = []
+
+        for idx, key in enumerate(keys):
+            if idx == 0:
+                statement.append(f'WHERE {key} = ?')
+            else:
+                statement.append(f'OR {key} = ?')
+            args.append(value)
+
+        return (' '.join(statement), args)
+
     def _create_sql_sort(field):
         statement = [f'ORDER BY']
         comparison_components = field.split(':')
@@ -128,10 +135,18 @@ def create_app():
 
         for k, v in request_args.items():
             if str(k).lower() not in ['sort', 'limit']:
-                fil = _create_sql_filter(filter_count, k, v)
-                statement.append(fil[0])
-                args.append(fil[1])
-                filter_count += 1
+                if str(k).lower() != 'or':
+                    fil = _create_sql_filter(filter_count, k, v)
+                    statement.append(fil[0])
+                    args.append(fil[1])
+                    filter_count += 1
+
+                else:
+                    components = v.split(':')
+                    keys = components[0].split(',')
+                    fil = _create_sql_or_filter(keys, components[1])
+                    statement.append(fil[0])
+                    args += fil[1]
 
         try:
             sort = request_args['sort']
@@ -149,6 +164,19 @@ def create_app():
 
         return (' '.join(statement), args)
 
+    def _sql_fetch_one(db: str, statement: str, args: tuple=()):
+        with sqlconn(db, timeout=DB_TIMEOUT) as conn:
+            datab = conn.cursor()
+            datab.execute(statement, args)
+
+            return datab.fetchone()
+
+    def _sql_fetch_all(db: str, statement: str, args: tuple=()):
+        with sqlconn(db, timeout=DB_TIMEOUT) as conn:
+            datab = conn.cursor()
+            datab.execute(statement, args)
+            return datab.fetchall()
+
     #                                                  #
     # =================== BALANCES =================== #
     #                                                  #
@@ -159,40 +187,38 @@ def create_app():
             'balance': float(row[3])
         }
 
-
-    @app.route('/balances',
-            methods=['GET'])
-    def all_balances():
+    def get_balances():
         balances = []
             
-        sql_statement = _create_sql('SELECT * FROM Users', request.args)
+        statement = _create_sql('SELECT * FROM Users', request.args)
 
-        with sqlconn(DATABASE, timeout=DB_TIMEOUT) as conn:
-            datab = conn.cursor()
-            
-            datab.execute(sql_statement[0], sql_statement[1])
-            for row in datab.fetchall():
-                balances.append(_row_to_balance(row))
+        try:
+            rows = _sql_fetch_all(DATABASE, statement[0], statement[1])
+            balances = [_row_to_balance(row) for row in rows]
+        except Exception as e:
+            return _error(f'Error fetching balances: {e}')
 
-        return jsonify(balances)
+        return _success(balances)
+
+    app.add_url_rule('/balances', 'get_balances', get_balances)
 
 
-    @app.route('/balances/<username>',
-            methods=['GET'])
-    def user_balances(username):
+    # Get the balance of a user
+    def get_user_balance(username):
         balance = {}
-        with sqlconn(DATABASE, timeout=DB_TIMEOUT) as conn:
-            datab = conn.cursor()
-            datab.execute(
-                """SELECT *
-                FROM Users
-                WHERE username = ?
-                ORDER BY balance DESC""", (username,))
-            row = datab.fetchone()
-            if row:
-                balance = _row_to_balance(row)
 
-        return jsonify(balance)
+        try:
+            row = _sql_fetch_one(DATABASE, 'SELECT * FROM Users WHERE username = ? ORDER BY balance DESC', (username,))
+        except Exception as e:
+            return _error(f'Error fetching balance: {e}')
+
+        if not row:
+            return _error(f'User \'{username}\' not found')
+
+        balance = _row_to_balance(row)
+        return _success(balance)
+
+    app.add_url_rule('/balances/<username>', 'get_user_balance', get_user_balance)
 
 
     #                                                      #
@@ -209,63 +235,78 @@ def create_app():
             'memo': str(row[5])
         }
 
-
-    @app.route('/transactions',
-            methods=['GET'])
-    def all_transactions():
+    # Get all transactions
+    def get_transactions():
         transactions = []
         args = request.args.to_dict()
 
+        # Remove all keys except for or, limit, sort
+        if 'username' in request.args.keys():
+            args = {}
+            for key, value in request.args.items():
+                if key in ['or', 'sort', 'limit']:
+                    args[key] = value
+
+            username = request.args['username']
+            args['or'] = f'username,recipient:{str(username)}'
+
         ## The DB uses `username` for `sender`
+        if 'sender' in args.keys():
+            args['username'] = args['sender']
+            del args['sender']
+
+        ## Adjust the sort key for datefield
+        if 'sort' in args:
+            value = args['sort']
+            if 'datetime' in value:
+                args['sort'] = value.replace('datetime', 'timestamp')
+                
+        statement = _create_sql('SELECT * FROM Transactions', args)
+
         try:
-            if args['sender']:
-                args['username'] = args['sender']
-                del args['sender']
-        except:
-            pass
+            rows = _sql_fetch_all(CONFIG_TRANSACTIONS, statement[0], statement[1])
+            transactions = [_row_to_transaction(row) for row in rows]
+        except Exception as e:
+            return _error(f'Error fetching transactions: {e}')
 
-        sql_statement = _create_sql('SELECT * FROM Transactions', args)
+        return _success(transactions)
 
-        print(sql_statement)
-        with sqlconn(CONFIG_TRANSACTIONS, timeout=DB_TIMEOUT) as conn:
-            datab = conn.cursor()
-            datab.execute(sql_statement[0], sql_statement[1])
+    app.add_url_rule('/transactions', 'get_transactions', get_transactions)
 
-            transactions = [_row_to_transaction(row) for row in datab.fetchall()]
-
-        return jsonify(transactions)
-
-    # @app.route('/transactions', methods=['POST'])
+    # @app.route('/transactions', 
+    #         methods=['POST'])
     # def create_transaction():
+    #     global global_last_block_hash_cp
+
     #     try:
     #         username = request.json['username']
     #         password = request.json['password']
     #     except:
-    #         return jsonify(_error('username and password required')), 400
+    #         return _error('username and password required')
 
     #     logged_in, msg = _login(username, password)
 
     #     if not logged_in:
-    #         return jsonify(_error(msg)), 401
+    #         return _error(msg, 401)
 
     #     try:
     #         amount = float(request.json['amount'])
     #         recipient = str(request.json['recipient'])
     #         memo = str(request.json.get('memo', 'None'))
     #     except:
-    #         return jsonify(_error('amount and recipient required')), 400
+    #         return _error('amount and recipient required')
 
     #     if username in jail:
-    #         return jsonify(_error('BONK - go to duco jail')), 400
+    #         return _error('BONK - go to duco jail')
 
     #     if recipient in jail:
-    #         return jsonify(_error('Can\'t send funds to that user')), 400
+    #         return _error('Can\'t send funds to that user')
 
     #     if recipient == username:
-    #         return jsonify(_error('You\'re sending funds to yourself')), 400
+    #         return _error('You\'re sending funds to yourself')
 
     #     if not user_exists(recipient):
-    #         return jsonify(_error('Recipient doesn\'t exist')), 400
+    #         return _error('Recipient doesn\'t exist')
 
     #     try:
     #         global_last_block_hash_cp = global_last_block_hash
@@ -282,7 +323,7 @@ def create_app():
     #             if (str(amount) == ""
     #                 or float(balance) <= float(amount)
     #                     or float(amount) <= 0):
-    #                 return jsonify(_error('Incorrect amount')), 400
+    #                 return _error('Incorrect amount')
 
     #             if float(balance) >= float(amount):
     #                 with sqlconn(DATABASE, timeout=DB_TIMEOUT) as conn:
@@ -324,63 +365,29 @@ def create_app():
     #                             global_last_block_hash_cp,
     #                             memo))
     #                     conn.commit()
-    #                     return jsonify('Successfully transferred funds')
+    #                     return jsonify(success=True, message='Successfully transferred funds')
     #     except Exception as e:
     #         print("Error sending funds from " + username
     #                     + " to " + recipient + ": " + str(e))
-    #         return jsonify(_error(f'Internal server error: {str(e)}'))
+    #         return _error(f'Internal server error: {str(e)}', 500)
 
 
-    @app.route('/transactions/<username>',
-            methods=['GET'])
-    def user_transactions(username):
-        transactions = []
-        with sqlconn(CONFIG_TRANSACTIONS, timeout=DB_TIMEOUT) as conn:
-            datab = conn.cursor()
-            datab.execute(
-                """SELECT * FROM Transactions 
-                WHERE username = ? OR 
-                recipient = ?""", (username, username))
+    # Get a transaction by its hash
+    def get_transaction(hash_id):
+        transaction = {}
+        try:
+            row = _sql_fetch_one(CONFIG_TRANSACTIONS, 'SELECT * FROM Transactions WHERE hash = ?', (hash_id,))
+        except Exception as e:
+            return _error(f'Error fetching transaction: {e}')
 
-            transactions = [_row_to_transaction(row) for row in datab.fetchall()]
+        if not row:
+            return _error(f'Transaction \'{hash_id}\' does not exist')
 
-        return jsonify(transactions)
+        transaction = _row_to_transaction(row)
+        return _success(transaction)
 
+    app.add_url_rule('/transactions/<hash_id>', 'get_transaction', get_transaction)
 
-    @app.route('/transactions/sender/<sender>/recipient/<recipient>',
-            methods=['GET'])
-    def transactions_from_to(sender, recipient):
-        transactions = []
-        with sqlconn(CONFIG_TRANSACTIONS, timeout=DB_TIMEOUT) as conn:
-            datab = conn.cursor()
-            datab.execute(
-                """SELECT * FROM Transactions 
-                WHERE username = ? AND 
-                recipient = ?""", (sender, recipient))
-
-            transactions = [_row_to_transaction(row) for row in datab.fetchall()]
-
-        return jsonify(transactions)
-
-
-    @app.route('/transactions/<key>/<username>',
-            methods=['GET'])
-    def transactions_from(key, username):
-        transactions = []
-
-        if key in ['sender', 'recipient']:
-            db_key = 'username' if key == 'sender' else 'recipient'
-            with sqlconn(CONFIG_TRANSACTIONS, timeout=DB_TIMEOUT) as conn:
-                datab = conn.cursor()
-                datab.execute(
-                    'SELECT * FROM Transactions WHERE '
-                    + db_key
-                    + '= ?', (username,))
-
-                transactions = [_row_to_transaction(
-                    row) for row in datab.fetchall()]
-
-        return jsonify(transactions)
 
 
     #                                                #
@@ -406,6 +413,7 @@ def create_app():
             "algorithm":  row[9]
         }
 
+    # Internal function get fetch miners from DB
     def _fetch_miners():
         global minersapi
         global last_miner_update
@@ -416,43 +424,50 @@ def create_app():
 
         print(f'fetching miners from {CONFIG_MINERAPI}')
         miners = []
-        with sqlconn(CONFIG_MINERAPI, timeout=DB_TIMEOUT) as conn:
-            datab = conn.cursor()
-            datab.execute(
-                """SELECT *
-                FROM Miners""")
-            """ Not sure if this is the best way to do this """
-            for row in datab.fetchall():
+        try:
+            rows = _sql_fetch_all(CONFIG_MINERAPI, 'SELECT * FROM Miners')
+            for row in rows:
                 miners.append(_row_to_miner(row))
+        except Exception as e:
+            print(f'Exception getting miners: {e}')
+            pass
         
         minersapi = miners
         last_miner_update = time()
 
-    @app.route('/miners',
-            methods=['GET'])
-    def all_miners():
+    # Get all miners
+    def get_miners():
         global minersapi
         _fetch_miners()
         miners = minersapi.copy()
         if 'username' in request.args.keys():
             miners = [m for m in miners if m['username'] == request.args['username']]
-        return jsonify(miners)
+        return _success(miners)
+    
+    app.add_url_rule('/miners', 'get_miners', get_miners)
 
-
-    @app.route('/miners/<username>',
-            methods=['GET'])
-    def user_miners(username):
+    # Get specific miner by its `threadid`
+    def get_miner(threadid):
         global minersapi
         _fetch_miners()
         miners = minersapi.copy()
 
-        return jsonify([m for m in miners if m['username'] == username])
+        miner = [m for m in miners if m['threadid'] == threadid]
+        if miner:
+            miner = miner[0]
+        else:
+            miner = {}
+        
+        return _success(miner)
+
+    app.add_url_rule('/miners/<threadid>', 'get_miner', get_miner)
 
 
     #                                             #
     # =================== API =================== #
     #                                             #
 
+    # Internal function to get API data from JSON file
     def _get_api_data():
         data = {}
         with open(API_JSON_URI, 'r') as f:
@@ -463,11 +478,11 @@ def create_app():
 
         return data
 
-
-    @app.route('/',
-            methods=['GET'])
+    # Return API Data object
     def get_api_data():
         return jsonify(_get_api_data())
+
+    app.add_url_rule('/', 'get_api_data', get_api_data)
 
     return app
 

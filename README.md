@@ -1,148 +1,228 @@
-duco-rest-api
+# duco-rest-api
 
 This is a simple REST API using Flask that links in directly to the DUCO databases to return transactions, and balances.
+
+----
 
 ## Usage
 
 1. Install requirements using `pip3 install -r requirements.txt`
 2. Run it using `gunicorn --bind 0.0.0.0:5000 wsgi:app` 
 
+----
+
 ## Endpoints
 
 ### Transactions
-`GET /transactions` - returns a list of all transactions. If no transactions exist, returns an empty list.
 
-Example:
-`GET /transactions`
+* **URL**
 
-```json
-[
-  {
-    "amount": 5,
-    "datetime": "18/04/2021 09:19:32",
-    "hash": "d2b690c337fa7b74b97c52ae8d1fa3bbab31034b",
-    "memo": "abc",
-    "recipient": "Bilaboz",
-    "sender": "revox"
-  },
-  {
-    "amount": 1.5,
-    "datetime": "18/04/2021 09:20:21",
-    "hash": "2c3829febd60906580065c95ebff809d3977dc2b",
-    "memo": "-",
-    "recipient": "revox",
-    "sender": "coinexchange"
-  },
-  {
-    "amount": 5,
-    "datetime": "18/04/2021 09:27:16",
-    "hash": "b11019a12589831ccab2447bb69b08de51206693",
-    "memo": "-",
-    "recipient": "ATAR4XY",
-    "sender": "revox"
-  }
-]
-```
+  `/transactions`
 
+* **Method**
 
+  `GET`
 
-`POST /transactions` - send a payment to another user. If there is an error of any sort, returns 
+* **URL Params**
+
+  **Optional Filters:**
+
+  `username=[alphanumeric]` - to get all transactions (sent or received) by a user. Only to be used with no other filters
+  `amount=[float]` - to get all transactions with a specific amount
+  `recipient=[alphanumeric]` - to get all transactions received by a user
+  `sender=[alphanumeric]` - to get all transactions sent by a user
+
+  **Optional Others:**
+  `sort=[key](:desc)` - sort the returned transactions by a given key. Direction is ascending by default. Only 1 sort per request.
+  `limit=[integer]` - only return a certain number of results. Only 1 limit per request.
+
+* **Success Response**
+
+  **Code:** `200`
+
+  **Content:**
 
 ```json
-{"error": "some error message here"}
-```
-
-Example
-
-```json
-POST /transactions
 {
-    "username": "dansinclair25",
-    "password": "my_awesome_password",
-    "amount": 1,
-    "recipient": "treadstone42",
-    "memo": "Some optional message"
+  "success": true,
+  "result": [
+    {
+      "amount": 5,
+      "datetime": "18/04/2021 09:19:32",
+      "hash": "d2b690c337fa7b74b97c52ae8d1fa3bbab31034b",
+      "memo": "abc",
+      "recipient": "Bilaboz",
+      "sender": "revox"
+    },
+    {
+      "amount": 1.5,
+      "datetime": "18/04/2021 09:20:21",
+      "hash": "2c3829febd60906580065c95ebff809d3977dc2b",
+      "memo": "-",
+      "recipient": "revox",
+      "sender": "coinexchange"
+    },
+    {
+      "amount": 5,
+      "datetime": "18/04/2021 09:27:16",
+      "hash": "b11019a12589831ccab2447bb69b08de51206693",
+      "memo": "-",
+      "recipient": "ATAR4XY",
+      "sender": "revox"
+    }
+  ]
 }
 ```
 
+* **Error Response**
+
+  **Code:** `400`
+  **Content:**
+
 ```json
-"Successfully transferred funds"
+{
+  "success": false,
+  "message": "Error fetching transactions"
+}
 ```
 
 
 
 ### Balances
 
-`GET /balances` - returns a list of all balances. If no balances exist, returns an empty list.
+* **URL**
 
-Example:
-`GET /balances`
+  `/balances`
+
+* **Method**
+
+  `GET`
+
+* **Success Response**
+
+  **Code:** `200`
+
+  **Content:**
 
 ```json
-[
-  {
-    "balance": 47071.64148509737,
-    "username": "chipsa"
-  },
-  {
-    "balance": 45756.09652071045,
-    "username": "coinexchange"
-  },
-  {
-    "balance": 31812.522314445283,
-    "username": "aarican"
-  }
-]
+{
+  "success": true,
+  "result": [
+    {
+      "balance": 47071.64148509737,
+      "username": "chipsa"
+    },
+    {
+      "balance": 45756.09652071045,
+      "username": "coinexchange"
+    },
+    {
+      "balance": 31812.522314445283,
+      "username": "aarican"
+    }
+  ]
+}
+```
+
+* **Error Response**
+
+  **Code:** `400`
+  **Content:**
+
+```json
+{
+  "success": false,
+  "message": "Error fetching balances"
+}
 ```
 
 
 
 ### Miners
 
-`GET /miners` - returns a list of all miners. If no miners exist, returns an empty list.
+* **URL**
 
-Example:
-`GET /miners`
+  `/miners`
+
+* **Method**
+
+  `GET`
+
+* **URL Params**
+
+  **Optional Filters:**
+
+  `username=[alphanumeric]` - to get all miners belonging to a user.
+
+* **Success Response**
+
+  **Code:** `200`
+
+  **Content:**
 
 ```json
-[
-  {
-    "accepted": 2935,
-    "algorithm": "DUCO-S1",
-    "diff": 5,
-    "hashrate": 168,
-    "id": "139797360490200",
-    "identifier": "ProMiniRig Node6",
-    "is estimated": "False",
-    "rejected": 0,
-    "sharetime": 3.324042,
-    "software": "Official AVR Miner (DUCO-S1A) v2.45",
-    "user": "MPM"
-  },
-  {
-    "accepted": 1234,
-    "algorithm": "DUCO-S1",
-    "diff": 98765,
-    "hashrate": 169000,
-    "id": "139797360421968",
-    "identifier": "PC Miner 1",
-    "is estimated": "False",
-    "rejected": 0,
-    "sharetime": 2.065604,
-    "software": "Official PC Miner (DUCO-S1) v2.45",
-    "user": "dansinclair25"
-  }
-]
+{
+  "success": true,
+  "result": [
+    {
+      "accepted": 2935,
+      "algorithm": "DUCO-S1",
+      "diff": 5,
+      "hashrate": 168,
+      "id": "139797360490200",
+      "identifier": "ProMiniRig Node6",
+      "is estimated": "False",
+      "rejected": 0,
+      "sharetime": 3.324042,
+      "software": "Official AVR Miner (DUCO-S1A) v2.45",
+      "user": "MPM"
+    },
+    {
+      "accepted": 1234,
+      "algorithm": "DUCO-S1",
+      "diff": 98765,
+      "hashrate": 169000,
+      "id": "139797360421968",
+      "identifier": "PC Miner 1",
+      "is estimated": "False",
+      "rejected": 0,
+      "sharetime": 2.065604,
+      "software": "Official PC Miner (DUCO-S1) v2.45",
+      "user": "dansinclair25"
+    }
+  ]
+}
+```
+
+* **Error Response**
+
+  **Code:** `400`
+  **Content:**
+
+```json
+{
+  "success": false,
+  "message": "Error fetching miners"
+}
 ```
 
 
 
 ### API Data
 
-`GET /` - return a object containing all of the API Data available in the `api.json` file
+* **URL**
 
-Example:
-`GET /`
+  `/`
+
+* **Method**
+
+  `GET`
+
+* **Success Response**
+
+  **Code:** `200`
+
+  **Content:**
 
 ```json
 {
@@ -187,23 +267,32 @@ Example:
 
 
 
-### Filtering, Sorting, and Limiting
+## Examples
 
-For the transactions, balances, and miners `GET` endpoints you can filter for results using query string parameters using any of the keys returned in an object;
-`GET /transactions?sender=revox`
-`GET /balances?username=revox`
-`GET /miners?username=revox`
+Fetch all transactions for `revox`:
+`/transactions?username=revox`
 
-If the request would return more than 1 result, you can chain the filters;
-`GET /transactions?sender=revox&recipient=bilboz`
+Fetch all transactions in date order (oldest first):
+`/transactions?sort=datetime:desc`
 
-For the transactions and balances endpoints, you can also sort the returned results by a key;
-`GET /transactions?sort=amount:desc`
-`GET /balances?sort=balance:asc` 
-Note that ommiting any direction of sorting (i.e. `?sort=balance`) will return results in ascending order
+Fetch all transactions from `dansinclair25` to `treadstone42`:
+`/transactions?sender=dansinclair25&recipient=treadstone42`
 
-To limit the number of returned objects;
-`GET /transactions?sort=amount:desc&limit=10`
+Fetch the last 10 transactions:
+`/transactions?sort=datetime&limit=10`
 
-Filtering, sorting, and limiting can also be chained;
-`GET /transactions?sender=revox&recipient=bilboz&sort=amount:desc&limit=10`
+Fetch all balances sorted by amount (highest amount first):
+`/balances?sort=balance:desc`
+
+Fetch balance for `revox`:
+`/balances?username=revox`
+
+Fetch all miners for `dansinclair25`:
+`/miners?username=dansinclair25`
+
+
+
+## Known Issues
+
+- No sorting or filtering (other than `username`) on miners.
+- Returned status code for errors maybe incorrect value (although still an error status code).
