@@ -88,6 +88,46 @@ This is a simple REST API using Flask that links in directly to the DUCO databas
 
 
 
+### Transaction
+
+* **URL**
+  `/transactions/<hash>`
+
+* **Method**
+  `GET`
+
+* **Success Reponse**
+  **Code:** `200`
+  **Content:**
+
+  ```json
+  {
+    "success": True,
+    "result": {
+        "amount": 5,
+        "datetime": "18/04/2021 09:27:16",
+        "hash": "b11019a12589831ccab2447bb69b08de51206693",
+        "memo": "-",
+        "recipient": "ATAR4XY",
+        "sender": "revox"
+      }
+  }
+  ```
+
+* **Error Response**
+
+  **Code:** `400`
+  **Content:**
+
+  ```json
+  {
+    "success": false,
+    "message": "Error fetching transaction"
+  }
+  ```
+
+  
+
 ### Balances
 
 * **URL**
@@ -133,6 +173,46 @@ This is a simple REST API using Flask that links in directly to the DUCO databas
 {
   "success": false,
   "message": "Error fetching balances"
+}
+```
+
+
+
+### Balance
+
+* **URL**
+
+  `/balances/<username>`
+
+* **Method**
+
+  `GET`
+
+* **Success Response**
+
+  **Code:** `200`
+
+  **Content:**
+
+```json
+{
+  "success": true,
+  "result": {
+    "balance": 45756.09652071045,
+    "username": "coinexchange"
+  }
+}
+```
+
+* **Error Response**
+
+  **Code:** `400`
+  **Content:**
+
+```json
+{
+  "success": false,
+  "message": "Error fetching balance"
 }
 ```
 
@@ -203,6 +283,55 @@ This is a simple REST API using Flask that links in directly to the DUCO databas
 {
   "success": false,
   "message": "Error fetching miners"
+}
+```
+
+
+
+### Miner
+
+* **URL**
+
+  `/miners/<threadid>`
+
+* **Method**
+
+  `GET`
+
+* **Success Response**
+
+  **Code:** `200`
+
+  **Content:**
+
+```json
+{
+  "success": true,
+  "result": {
+    "accepted": 2935,
+    "algorithm": "DUCO-S1",
+    "diff": 5,
+    "hashrate": 168,
+    "id": "139797360490200",
+    "identifier": "ProMiniRig Node6",
+    "is estimated": "False",
+    "rejected": 0,
+    "sharetime": 3.324042,
+    "software": "Official AVR Miner (DUCO-S1A) v2.45",
+    "user": "MPM"
+  }
+}
+```
+
+* **Error Response**
+
+  **Code:** `400`
+  **Content:**
+
+```json
+{
+  "success": false,
+  "message": "Error fetching miner"
 }
 ```
 
