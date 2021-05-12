@@ -1,14 +1,22 @@
 import os
 import json
-import threading
 from flask import Flask, request, jsonify
 from sqlite3 import connect as sqlconn
-from time import sleep
+from time import sleep, time
 from flask_cors import CORS
 from bcrypt import checkpw
 from re import match
 from Server import DATABASE, DB_TIMEOUT, CONFIG_MINERAPI, CONFIG_TRANSACTIONS, API_JSON_URI, DUCO_PASS, NodeS_Overide, user_exists, jail, global_last_block_hash, now
     
+
+# class RESTApp(Flask):
+
+#     def __init__(self):
+#         super(RESTApp, self).__init__(__name__)
+
+#         cors = CORS(self, resources={r"*": {"origins": "*"}})
+
+
 
 def create_app():
     app = Flask(__name__)
@@ -381,6 +389,9 @@ def create_app():
     global minersapi
     minersapi = []
 
+    global last_miner_update
+    last_miner_update = 0
+
     def _row_to_miner(row):
         return {
             "threadid":   row[0],
@@ -397,25 +408,31 @@ def create_app():
 
     def _fetch_miners():
         global minersapi
-        while True:
-            print(f'fetching miners from {CONFIG_MINERAPI}')
-            miners = []
-            with sqlconn(CONFIG_MINERAPI, timeout=DB_TIMEOUT) as conn:
-                datab = conn.cursor()
-                datab.execute(
-                    """SELECT *
-                    FROM Miners""")
-                """ Not sure if this is the best way to do this """
-                for row in datab.fetchall():
-                    miners.append(_row_to_miner(row))
-            
-            minersapi = miners
-            sleep(20)
+        global last_miner_update
+        
+        now = time()
+        if now - last_miner_update < 20:
+            return
+
+        print(f'fetching miners from {CONFIG_MINERAPI}')
+        miners = []
+        with sqlconn(CONFIG_MINERAPI, timeout=DB_TIMEOUT) as conn:
+            datab = conn.cursor()
+            datab.execute(
+                """SELECT *
+                FROM Miners""")
+            """ Not sure if this is the best way to do this """
+            for row in datab.fetchall():
+                miners.append(_row_to_miner(row))
+        
+        minersapi = miners
+        last_miner_update = time()
 
     @app.route('/miners',
             methods=['GET'])
     def all_miners():
         global minersapi
+        _fetch_miners()
         miners = minersapi.copy()
         if 'username' in request.args.keys():
             miners = [m for m in miners if m['username'] == request.args['username']]
@@ -426,6 +443,7 @@ def create_app():
             methods=['GET'])
     def user_miners(username):
         global minersapi
+        _fetch_miners()
         miners = minersapi.copy()
 
         return jsonify([m for m in miners if m['username'] == username])
@@ -451,11 +469,4 @@ def create_app():
     def get_api_data():
         return jsonify(_get_api_data())
 
-
-    t = threading.Thread(target=_fetch_miners)
-    t.daemon = True
-    t.start()
-
     return app
-
-app = create_app()
