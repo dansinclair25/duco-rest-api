@@ -470,3 +470,5 @@ def create_app():
         return jsonify(_get_api_data())
 
     return app
+
+app = create_app()
