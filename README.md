@@ -337,11 +337,11 @@ This is a simple REST API using Flask that links in directly to the DUCO databas
 
 
 
-### API Data
+### Statistics
 
 * **URL**
 
-  `/`
+  `/statistics`
 
 * **Method**
 

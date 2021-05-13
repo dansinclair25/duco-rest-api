@@ -481,4 +481,4 @@ def _get_api_data():
 def get_api_data():
     return jsonify(_get_api_data())
 
-app.add_url_rule('/', 'get_api_data', get_api_data)
+app.add_url_rule('/statistics', 'get_api_data', get_api_data)
