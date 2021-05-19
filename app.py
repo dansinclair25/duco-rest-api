@@ -4,7 +4,6 @@ import json
 from flask import Flask, request, jsonify
 from sqlite3 import connect as sqlconn
 from time import sleep, time
-from flask_cors import CORS
 from bcrypt import checkpw
 from re import match
 from collections import OrderedDict
@@ -15,7 +14,6 @@ class DUCOApp(Flask):
 
     def __init__(self):
         super(DUCOApp, self).__init__(__name__)
-        cors = CORS(self, resources={r"*": {"origins": "*"}})
 
         self.minersapi = []
         self.last_miner_update = 0
