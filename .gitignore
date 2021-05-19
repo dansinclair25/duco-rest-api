@@ -24,3 +24,7 @@ htmlcov/
 *,cover
 
 Server.py
+bin
+include
+lib
+pyvenv.cfg
