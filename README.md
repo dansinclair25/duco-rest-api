@@ -13,6 +13,88 @@ This is a simple REST API using Flask that links in directly to the DUCO databas
 
 ## Endpoints
 
+### Users
+
+- **URL**
+
+  `/users/<username>`
+
+- **Method**
+
+  `GET`
+
+- **Success Response**
+
+  **Code:** `200`
+
+  **Content:**
+
+  ```json
+  {
+    "result": {
+      "balance": {
+        "balance": 1047.796283515931,
+        "username": "dansinclair25"
+      },
+      "miners": [
+        {
+          "accepted": 1038,
+          "algorithm": "DUCO-S1",
+          "diff": 2000,
+          "hashrate": 11086,
+          "identifier": "ESP32 4",
+          "rejected": 0,
+          "sharetime": 5.677812,
+          "software": "ESP32 CORE2 Miner v2.52",
+          "threadid": "140479274537872",
+          "username": "dansinclair25"
+        },
+        {
+          "accepted": 1269,
+          "algorithm": "DUCO-S1",
+          "diff": 5,
+          "hashrate": 195,
+          "identifier": "unos",
+          "rejected": 0,
+          "sharetime": 10.116792,
+          "software": "Official AVR Miner (DUCO-S1A) v2.49",
+          "threadid": "140479268060240",
+          "username": "dansinclair25"
+        }
+      ],
+      "transactions": [
+        {
+          "amount": 9.855,
+          "datetime": "29/04/2021 14:43:37",
+          "hash": "a04b2a4dced85cc093dcdc9e57af197e34e295a3",
+          "memo": "Bot coins to DUCO exchange",
+          "recipient": "dansinclair25",
+          "sender": "coinexchange"
+        },
+        {
+          "amount": 22.845,
+          "datetime": "27/04/2021 14:30:14",
+          "hash": "f60a135e0d1c2f0ad1f03eb55c87e4de9bd9f888",
+          "memo": "Bot coins to DUCO exchange",
+          "recipient": "dansinclair25",
+          "sender": "coinexchange"
+        },
+        {
+          "amount": 0.01,
+          "datetime": "26/04/2021 09:22:03",
+          "hash": "183eccfe465fc23600cf07e1ec55beaf57ff2486",
+          "memo": "faucet",
+          "recipient": "dansinclair25",
+          "sender": "ducofaucet"
+        }
+      ]
+    },
+    "success": true
+  }
+  ```
+
+  
+
 ### Transactions
 
 * **URL**
