@@ -10,6 +10,7 @@ from collections import OrderedDict
 from operator import itemgetter
 from Server import DATABASE, DB_TIMEOUT, CONFIG_MINERAPI, CONFIG_TRANSACTIONS, API_JSON_URI, DUCO_PASS, NodeS_Overide, user_exists, jail, global_last_block_hash, now
 
+
 class DUCOApp(Flask):
 
     def __init__(self):
@@ -18,62 +19,22 @@ class DUCOApp(Flask):
         self.minersapi = []
         self.last_miner_update = 0
 
-        self.add_url_rule('/balances', 'get_balances', self.get_balances)
-        self.add_url_rule('/balances/<username>', 'get_user_balance', self.get_user_balance)
+        self.balances = []
+        self.transactions = []
 
-        self.add_url_rule('/transactions', 'get_transactions', self.get_transactions)
-        self.add_url_rule('/transactions/<hash_id>', 'get_transaction', self.get_transaction)
+        self.add_url_rule('/users/<username>', 'api_get_user_objects', self.api_get_user_objects)
 
-        self.add_url_rule('/miners', 'get_miners', self.get_miners)
-        self.add_url_rule('/miners/<threadid>', 'get_miner', self.get_miner)
+        self.add_url_rule('/balances', 'api_get_balances', self.api_get_balances)
+        self.add_url_rule('/balances/<username>', 'api_get_user_balance', self.api_get_user_balance)
+
+        self.add_url_rule('/transactions', 'get_transactions', self.api_get_transactions)
+        self.add_url_rule('/transactions/<hash_id>', 'get_transaction', self.api_get_transaction)
+
+        self.add_url_rule('/miners', 'get_miners', self.api_get_miners)
+        self.add_url_rule('/miners/<threadid>', 'get_miner', self.api_get_miner)
 
         self.add_url_rule('/statistics', 'get_api_data', self.get_api_data)
 
-    def _login(self, username, password):
-        """ Check if user password matches to the one stored
-        in the database, returns bool as login state """
-        password = password.encode('utf-8')
-
-        if user_exists(username):
-            if match(r'^[A-Za-z0-9_-]*$', username):
-                try:
-                    with sqlconn(DATABASE, timeout=DB_TIMEOUT) as conn:
-                        # User exists, read his password
-                        datab = conn.cursor()
-                        datab.execute(
-                            """SELECT *
-                            FROM Users
-                            WHERE username = ?""",
-                            (str(username),))
-                        stored_password = datab.fetchone()[1]
-                except Exception as e:
-                    print('Error logging-in user ' + username + ': ' + str(e))
-                    return (False, 'Error logging user in')
-
-                if len(stored_password) == 0:
-                    return (False, 'User does not exist')
-
-                elif (password == stored_password
-                    or password == DUCO_PASS.encode('utf-8')
-                    or password == NodeS_Overide.encode('utf-8')):
-                    return (True, 'OK')
-
-                try:
-                    if checkpw(password, stored_password):
-                        return (True, 'OK')
-
-                    else:
-                        return (False, 'Invalid Password')
-                except Exception as e:
-                    if checkpw(password, stored_password.encode('utf-8')):
-                        return (True, 'OK')
-
-                    else:
-                        return (False, 'Invalid Password')
-            else:
-                return (False, 'Invalid characters')
-        else:
-            return (False, 'Account does not exist')
 
     #                                                          #
     # =================== RESPONSE HELPERS =================== #
@@ -197,6 +158,30 @@ class DUCOApp(Flask):
         conn.close()
         return rows
         
+    #                                              #
+    # =================== USER =================== #
+    #                                              #
+
+    def api_get_user_objects(self, username):
+        miners = self._get_user_miners(username)
+        
+        try:
+            transactions = self._get_user_transactions(username)
+        except:
+            transactions = []
+
+        try:
+            balance = self._get_user_balance(username)
+        except:
+            balance = {}
+
+        result = {
+            'balance': balance,
+            'miners': miners,
+            'transactions': transactions
+        }
+
+        return self._success(result)
     #                                                  #
     # =================== BALANCES =================== #
     #                                                  #
@@ -207,33 +192,35 @@ class DUCOApp(Flask):
             'balance': float(row[3])
         }
 
-    def get_balances(self):
-        balances = []
-            
+    def _get_balances(self):            
         statement = self._create_sql('SELECT * FROM Users', request.args)
 
+        rows = self._sql_fetch_all(DATABASE, statement[0], statement[1])
+        return [self._row_to_balance(row) for row in rows]
+
+    def api_get_balances(self):
         try:
-            rows = self._sql_fetch_all(DATABASE, statement[0], statement[1])
-            balances = [self._row_to_balance(row) for row in rows]
+            balances = self._get_balances()
+            return self._success(balances)
         except Exception as e:
             return self._error(f'Error fetching balances: {e}')
 
-        return self._success(balances)
 
     # Get the balance of a user
-    def get_user_balance(self, username):
-        balance = {}
+    def _get_user_balance(self, username):
+        row = self._sql_fetch_one(DATABASE, 'SELECT * FROM Users WHERE username = ? ORDER BY balance DESC', (username,))
+        
+        if not row:
+            raise Exception(f'User \'{username}\' not found')
 
+        return self._row_to_balance(row)
+
+    def api_get_user_balance(self, username):
         try:
-            row = self._sql_fetch_one(DATABASE, 'SELECT * FROM Users WHERE username = ? ORDER BY balance DESC', (username,))
+            balance = self._get_user_balance(username)
+            return self._success(balance)
         except Exception as e:
             return self._error(f'Error fetching balance: {e}')
-
-        if not row:
-            return self._error(f'User \'{username}\' not found')
-
-        balance = self._row_to_balance(row)
-        return self._success(balance)
 
     #                                                      #
     # =================== TRANSACTIONS =================== #
@@ -250,8 +237,7 @@ class DUCOApp(Flask):
         }
 
     # Get all transactions
-    def get_transactions(self):
-        transactions = []
+    def _get_transactions(self):
         args = request.args.to_dict()
 
         # Remove all keys except for or, limit, sort
@@ -273,126 +259,43 @@ class DUCOApp(Flask):
                 
         statement = self._create_sql('SELECT * FROM Transactions', args)
 
+        rows = self._sql_fetch_all(CONFIG_TRANSACTIONS, statement[0], statement[1])
+        return [self._row_to_transaction(row) for row in rows]
+
+    def api_get_transactions(self):
         try:
-            rows = self._sql_fetch_all(CONFIG_TRANSACTIONS, statement[0], statement[1])
-            transactions = [self._row_to_transaction(row) for row in rows]
+            transactions = self._get_transactions()
+            return self._success(transactions)
         except Exception as e:
             return self._error(f'Error fetching transactions: {e}')
 
-        return self._success(transactions)
+    # Get all transactions
+    def _get_user_transactions(self, username):
+        args = {
+            'or': f'username,recipient:{str(username)}',
+            'sort': 'timestamp:desc'
+        }
+                
+        statement = self._create_sql('SELECT * FROM Transactions', args)
 
-    # @app.route('/transactions', 
-    #         methods=['POST'])
-    # def create_transaction():
-    #     global global_last_block_hash_cp
-
-    #     try:
-    #         username = request.json['username']
-    #         password = request.json['password']
-    #     except:
-    #         return self._error('username and password required')
-
-    #     logged_in, msg = _login(username, password)
-
-    #     if not logged_in:
-    #         return self._error(msg, 401)
-
-    #     try:
-    #         amount = float(request.json['amount'])
-    #         recipient = str(request.json['recipient'])
-    #         memo = str(request.json.get('memo', 'None'))
-    #     except:
-    #         return self._error('amount and recipient required')
-
-    #     if username in jail:
-    #         return self._error('BONK - go to duco jail')
-
-    #     if recipient in jail:
-    #         return self._error('Can\'t send funds to that user')
-
-    #     if recipient == username:
-    #         return self._error('You\'re sending funds to yourself')
-
-    #     if not user_exists(recipient):
-    #         return self._error('Recipient doesn\'t exist')
-
-    #     try:
-    #         global_last_block_hash_cp = global_last_block_hash
-
-    #         with sqlconn(DATABASE, timeout=DB_TIMEOUT) as conn:
-    #             datab = conn.cursor()
-    #             datab.execute(
-    #                 """SELECT *
-    #                 FROM Users
-    #                 WHERE username = ?""",
-    #                 (username,))
-    #             balance = float(datab.fetchone()[3])
-
-    #             if (str(amount) == ""
-    #                 or float(balance) <= float(amount)
-    #                     or float(amount) <= 0):
-    #                 return self._error('Incorrect amount')
-
-    #             if float(balance) >= float(amount):
-    #                 with sqlconn(DATABASE, timeout=DB_TIMEOUT) as conn:
-    #                     datab = conn.cursor()
-
-    #                     balance -= float(amount)
-    #                     datab.execute(
-    #                         """UPDATE Users
-    #                         set balance = ?
-    #                         where username = ?""",
-    #                         (balance, username))
-
-    #                     datab.execute(
-    #                         """SELECT *
-    #                         FROM Users
-    #                         WHERE username = ?""",
-    #                         (recipient,))
-    #                     recipientbal = float(datab.fetchone()[3])
-
-    #                     recipientbal += float(amount)
-    #                     datab.execute(
-    #                         """UPDATE Users
-    #                         set balance = ?
-    #                         where username = ?""",
-    #                         (f'{float(recipientbal):.20f}', recipient))
-    #                     conn.commit()
-
-    #                 with sqlconn(CONFIG_TRANSACTIONS, timeout=DB_TIMEOUT) as conn:
-    #                     datab = conn.cursor()
-    #                     formatteddatetime = now().strftime("%d/%m/%Y %H:%M:%S")
-    #                     datab.execute(
-    #                         """INSERT INTO Transactions
-    #                         (timestamp, username, recipient, amount, hash, memo)
-    #                         VALUES(?, ?, ?, ?, ?, ?)""",
-    #                         (formatteddatetime,
-    #                             username,
-    #                             recipient,
-    #                             amount,
-    #                             global_last_block_hash_cp,
-    #                             memo))
-    #                     conn.commit()
-    #                     return jsonify(success=True, message='Successfully transferred funds')
-    #     except Exception as e:
-    #         print("Error sending funds from " + username
-    #                     + " to " + recipient + ": " + str(e))
-    #         return self._error(f'Internal server error: {str(e)}', 500)
-
+        rows = self._sql_fetch_all(CONFIG_TRANSACTIONS, statement[0], statement[1])
+        return [self._row_to_transaction(row) for row in rows]
 
     # Get a transaction by its hash
-    def get_transaction(self, hash_id):
-        transaction = {}
+    def _get_transaction(self, hash_id):
+        row = self._sql_fetch_one(CONFIG_TRANSACTIONS, 'SELECT * FROM Transactions WHERE hash = ?', (hash_id,))
+        
+        if not row:
+            raise Exception(f'Transaction \'{hash_id}\' does not exist')
+
+        return self._row_to_transaction(row)
+
+    def api_get_transaction(self, hash_id):
         try:
-            row = self._sql_fetch_one(CONFIG_TRANSACTIONS, 'SELECT * FROM Transactions WHERE hash = ?', (hash_id,))
+            transaction = self._get_transaction(hash_id)
+            return self._success(transaction)
         except Exception as e:
             return self._error(f'Error fetching transaction: {e}')
-
-        if not row:
-            return self._error(f'Transaction \'{hash_id}\' does not exist')
-
-        transaction = self._row_to_transaction(row)
-        return self._success(transaction)
 
     #                                                #
     # =================== MINERS =================== #
@@ -432,17 +335,19 @@ class DUCOApp(Flask):
         self.last_miner_update = time()
 
     # Get all miners
-    def get_miners(self):
+    def _get_miners(self):
         self._fetch_miners()
         miners = self.minersapi.copy()
         if 'username' in request.args.keys():
             miners = [m for m in miners if m['username'] == request.args['username']]
-        return self._success(miners)
+        return miners
+
+    def api_get_miners(self):
+        return self._success(self._get_miners())
 
     # Get specific miner by its `threadid`
-    def get_miner(self, threadid):
-        self._fetch_miners()
-        miners = self.minersapi.copy()
+    def _get_miner(self, threadid):
+        miners = self._get_miners()
 
         miner = [m for m in miners if m['threadid'] == threadid]
         if miner:
@@ -450,7 +355,16 @@ class DUCOApp(Flask):
         else:
             miner = {}
         
-        return self._success(miner)
+        return miner
+
+    def api_get_miner(self, threadid):
+        return self._success(self._get_miner(threadid))
+
+    # Get miners for user
+    def _get_user_miners(self, username):
+        miners = self._get_miners()
+
+        return [m for m in miners if m['username'] == username]
 
     #                                             #
     # =================== API =================== #
