@@ -7,7 +7,8 @@ This is a simple REST API using Flask that links in directly to the DUCO databas
 ## Usage
 
 1. Install requirements using `pip3 install -r requirements.txt`
-2. Run it using `gunicorn --bind 0.0.0.0:5000 wsgi:app` 
+2. Run it using `gunicorn wsgi:app` 
+3. Locally, this is available on `127.0.0.1:5000`
 
 ----
 
