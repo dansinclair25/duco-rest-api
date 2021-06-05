@@ -1,7 +1,8 @@
 import os
 import sys
 import json
-from flask import Flask, request, jsonify
+from fastapi import FastAPI
+from typing import Optional
 from sqlite3 import connect as sqlconn
 from time import sleep, time
 from bcrypt import checkpw
@@ -11,40 +12,37 @@ from operator import itemgetter
 from Server import DATABASE, DB_TIMEOUT, CONFIG_MINERAPI, CONFIG_TRANSACTIONS, API_JSON_URI, DUCO_PASS, NodeS_Overide, user_exists, jail, global_last_block_hash, now
 
 
-class DUCOApp(Flask):
+class DUCOApp(FastAPI):
 
     def __init__(self):
-        super(DUCOApp, self).__init__(__name__)
+        super(DUCOApp, self).__init__()
 
         self.minersapi = []
         self.last_miner_update = 0
 
-        self.balances = []
-        self.transactions = []
+        self.add_api_route('/users/{username}', self.api_get_user_objects)
 
-        self.add_url_rule('/users/<username>', 'api_get_user_objects', self.api_get_user_objects)
+        self.add_api_route('/balances', self.api_get_balances)
+        self.add_api_route('/balances/{username}', self.api_get_user_balance)
 
-        self.add_url_rule('/balances', 'api_get_balances', self.api_get_balances)
-        self.add_url_rule('/balances/<username>', 'api_get_user_balance', self.api_get_user_balance)
+        self.add_api_route('/transactions', self.api_get_transactions)
+        self.add_api_route('/transactions/{hash_id}', self.api_get_transaction)
 
-        self.add_url_rule('/transactions', 'get_transactions', self.api_get_transactions)
-        self.add_url_rule('/transactions/<hash_id>', 'get_transaction', self.api_get_transaction)
+        self.add_api_route('/miners', self.api_get_miners)
+        self.add_api_route('/miners/{threadid}', self.api_get_miner)
 
-        self.add_url_rule('/miners', 'get_miners', self.api_get_miners)
-        self.add_url_rule('/miners/<threadid>', 'get_miner', self.api_get_miner)
-
-        self.add_url_rule('/statistics', 'get_api_data', self.get_api_data)
+        self.add_api_route('/statistics', self.get_api_data)
 
 
     #                                                          #
     # =================== RESPONSE HELPERS =================== #
     #                                                          #
 
-    def _success(self, result, code: int=200):
-        return jsonify(success=True, result=result), code
+    def _success(self, result):
+        return {'success': True, 'result': result}
 
-    def _error(self, string, code=400):
-        return jsonify(success=False, message=string), code
+    def _error(self, string: str):
+        return {'success': False, 'message': string}
 
     #                                                     #
     # =================== SQL HELPERS =================== #
@@ -162,7 +160,7 @@ class DUCOApp(Flask):
     # =================== USER =================== #
     #                                              #
 
-    def api_get_user_objects(self, username):
+    def api_get_user_objects(self, username: str):
         miners = self._get_user_miners(username)
         
         try:
@@ -237,52 +235,43 @@ class DUCOApp(Flask):
         }
 
     # Get all transactions
-    def _get_transactions(self):
-        args = request.args.to_dict()
+    def _get_transactions(self, username: Optional[str] = None, sender: Optional[str] = None, recipient: Optional[str] = None, sort: Optional[str] = None):
+        args = {}
 
         # Remove all keys except for or, limit, sort
-        if 'username' in request.args:
-            args = {k:v for k, v in request.args.items() if k in ['or', 'sort', 'limit']}
-
-            username = request.args['username']
+        if username:
             args['or'] = f'username,recipient:{str(username)}'
 
         ## The DB uses `username` for `sender`
-        if 'sender' in args:
-            args['username'] = args['sender']
-            del args['sender']
+        if sender:
+            args['username'] = sender
+
+        if recipient:
+            args['recipient'] = recipient
 
         ## Adjust the sort key for datefield
-        if 'sort' in args:
-            if 'datetime' in args['sort']:
-                args['sort'] = args['sort'].replace('datetime', 'timestamp')
-                
+        if sort:
+            if 'datetime' in sort:
+                args['sort'] = sort.replace('datetime', 'timestamp')
+
         statement = self._create_sql('SELECT * FROM Transactions', args)
 
         rows = self._sql_fetch_all(CONFIG_TRANSACTIONS, statement[0], statement[1])
         return [self._row_to_transaction(row) for row in rows]
 
-    def api_get_transactions(self):
+    def api_get_transactions(self, username: Optional[str] = None, sender: Optional[str] = None, recipient: Optional[str] = None, sort: Optional[str] = None):
         try:
-            transactions = self._get_transactions()
+            transactions = self._get_transactions(username=username, sender=sender, recipient=recipient, sort=sort)
             return self._success(transactions)
         except Exception as e:
             return self._error(f'Error fetching transactions: {e}')
 
     # Get all transactions
-    def _get_user_transactions(self, username):
-        args = {
-            'or': f'username,recipient:{str(username)}',
-            'sort': 'timestamp:desc'
-        }
-                
-        statement = self._create_sql('SELECT * FROM Transactions', args)
-
-        rows = self._sql_fetch_all(CONFIG_TRANSACTIONS, statement[0], statement[1])
-        return [self._row_to_transaction(row) for row in rows]
+    def _get_user_transactions(self, username: str):
+        return self._get_transactions(username=username, sort='timestamp:desc')
 
     # Get a transaction by its hash
-    def _get_transaction(self, hash_id):
+    def _get_transaction(self, hash_id: str):
         row = self._sql_fetch_one(CONFIG_TRANSACTIONS, 'SELECT * FROM Transactions WHERE hash = ?', (hash_id,))
         
         if not row:
@@ -290,7 +279,7 @@ class DUCOApp(Flask):
 
         return self._row_to_transaction(row)
 
-    def api_get_transaction(self, hash_id):
+    def api_get_transaction(self, hash_id: str):
         try:
             transaction = self._get_transaction(hash_id)
             return self._success(transaction)
@@ -335,18 +324,18 @@ class DUCOApp(Flask):
         self.last_miner_update = time()
 
     # Get all miners
-    def _get_miners(self):
+    def _get_miners(self, username: Optional[str] = None):
         self._fetch_miners()
         miners = self.minersapi.copy()
-        if 'username' in request.args.keys():
-            miners = [m for m in miners if m['username'] == request.args['username']]
+        if username:
+            miners = [m for m in miners if m['username'] == username]
         return miners
 
     def api_get_miners(self):
         return self._success(self._get_miners())
 
     # Get specific miner by its `threadid`
-    def _get_miner(self, threadid):
+    def _get_miner(self, threadid: str):
         miners = self._get_miners()
 
         miner = [m for m in miners if m['threadid'] == threadid]
@@ -357,14 +346,12 @@ class DUCOApp(Flask):
         
         return miner
 
-    def api_get_miner(self, threadid):
+    def api_get_miner(self, threadid: str):
         return self._success(self._get_miner(threadid))
 
     # Get miners for user
-    def _get_user_miners(self, username):
-        miners = self._get_miners()
-
-        return [m for m in miners if m['username'] == username]
+    def _get_user_miners(self, username: str):
+        return self._get_miners(username=username)
 
     #                                             #
     # =================== API =================== #
