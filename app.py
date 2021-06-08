@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+from typing import Optional
 from flask import Flask, request, jsonify
 from sqlite3 import connect as sqlconn
 from time import sleep, time
@@ -8,19 +9,28 @@ from bcrypt import checkpw
 from re import match
 from collections import OrderedDict
 from operator import itemgetter
-from Server import DATABASE, DB_TIMEOUT, CONFIG_MINERAPI, CONFIG_TRANSACTIONS, API_JSON_URI, DUCO_PASS, NodeS_Overide, user_exists, jail, global_last_block_hash, now
-
+from Server import DATABASE, DB_TIMEOUT, CONFIG_MINERAPI, CONFIG_TRANSACTIONS, API_JSON_URI, DUCO_PASS, NodeS_Overide, user_exists, jail, global_last_block_hash, now, SAVE_TIME
 
 class DUCOApp(Flask):
 
     def __init__(self):
         super(DUCOApp, self).__init__(__name__)
 
+        self.use_cache = True
+
+        self.minersapi = []
+        self.last_miner_update = 0
+
+        self.use_cache = True
+
         self.minersapi = []
         self.last_miner_update = 0
 
         self.balances = []
+        self.last_balances_update = 0
+
         self.transactions = []
+        self.last_transactions_update = 0
 
         self.add_url_rule('/users/<username>', 'api_get_user_objects', self.api_get_user_objects)
 
@@ -105,7 +115,7 @@ class DUCOApp(Flask):
     def _create_sql_limit(self, amount):
         return ('LIMIT ?', amount)
 
-    def _create_sql(self, sql, request_args):
+    def _create_sql(self, sql, request_args = {}):
         statement = [sql]
         args = []
         filter_count = 0
@@ -162,7 +172,7 @@ class DUCOApp(Flask):
     # =================== USER =================== #
     #                                              #
 
-    def api_get_user_objects(self, username):
+    def api_get_user_objects(self, username: str):
         miners = self._get_user_miners(username)
         
         try:
@@ -182,6 +192,7 @@ class DUCOApp(Flask):
         }
 
         return self._success(result)
+    
     #                                                  #
     # =================== BALANCES =================== #
     #                                                  #
@@ -192,13 +203,27 @@ class DUCOApp(Flask):
             'balance': float(row[3])
         }
 
-    def _get_balances(self):            
-        statement = self._create_sql('SELECT * FROM Users', request.args)
+    def _get_balances(self):  
+        statement = self._create_sql('SELECT * FROM Users')
 
         rows = self._sql_fetch_all(DATABASE, statement[0], statement[1])
         return [self._row_to_balance(row) for row in rows]
 
+    def _fetch_balances(self):
+        now = time()
+        if now - self.last_balances_update < SAVE_TIME:
+            return self.balances.copy()
+
+        print(f'fetching balances from {DATABASE}')
+        self.balances = self._get_balances()
+        self.last_balances_update = time()
+
+        return self.balances.copy()
+
     def api_get_balances(self):
+        if self.use_cache:
+            return self._success(self.balances)
+
         try:
             balances = self._get_balances()
             return self._success(balances)
@@ -207,7 +232,7 @@ class DUCOApp(Flask):
 
 
     # Get the balance of a user
-    def _get_user_balance(self, username):
+    def _get_user_balance(self, username: str):
         row = self._sql_fetch_one(DATABASE, 'SELECT * FROM Users WHERE username = ? ORDER BY balance DESC', (username,))
         
         if not row:
@@ -215,7 +240,12 @@ class DUCOApp(Flask):
 
         return self._row_to_balance(row)
 
-    def api_get_user_balance(self, username):
+    def api_get_user_balance(self, username: str):
+        if self.use_cache:
+            balances = self._fetch_balances()
+            balance = [b for b in balances if b['username'] == username][0] if 0 < len(balances) else {}
+            return self._success(balance)
+
         try:
             balance = self._get_user_balance(username)
             return self._success(balance)
@@ -237,52 +267,114 @@ class DUCOApp(Flask):
         }
 
     # Get all transactions
-    def _get_transactions(self):
-        args = request.args.to_dict()
+    def _get_transactions(self, username: Optional[str] = None, sender: Optional[str] = None, recipient: Optional[str] = None, sort: Optional[str] = None):
+        # args = request.args.to_dict()
+        args = {}
 
         # Remove all keys except for or, limit, sort
-        if 'username' in request.args:
-            args = {k:v for k, v in request.args.items() if k in ['or', 'sort', 'limit']}
-
-            username = request.args['username']
+        if username:
             args['or'] = f'username,recipient:{str(username)}'
 
         ## The DB uses `username` for `sender`
-        if 'sender' in args:
-            args['username'] = args['sender']
-            del args['sender']
+        if sender:
+            args['username'] = sender
+
+        if recipient:
+            args['recipient'] = recipient
 
         ## Adjust the sort key for datefield
-        if 'sort' in args:
-            if 'datetime' in args['sort']:
-                args['sort'] = args['sort'].replace('datetime', 'timestamp')
-                
+        if sort:
+            if 'datetime' in sort:
+                args['sort'] = sort.replace('datetime', 'timestamp')
+
         statement = self._create_sql('SELECT * FROM Transactions', args)
 
         rows = self._sql_fetch_all(CONFIG_TRANSACTIONS, statement[0], statement[1])
         return [self._row_to_transaction(row) for row in rows]
 
+    def _fetch_transactions(self):
+        now = time()
+        if now - self.last_transactions_update < 15:
+            return self.transactions.copy()
+
+        print(f'fetching transactions from {CONFIG_TRANSACTIONS}')
+        self.transactions = self._get_transactions()
+        self.last_transactions_update = time()
+
+        return self.transactions.copy()
+    
     def api_get_transactions(self):
+        
+        username = request.args.get('username', None)
+        sender = request.args.get('sender', None)
+        recipient = request.args.get('recipient', None)
+        sort = request.args.get('sort', None)
+
+        if self.use_cache:
+            transactions = self._fetch_transactions()
+
+            if username:
+                transactions = [t for t in transactions if (t['sender'] == username or t['recipient'] == username)]
+
+            elif sender and recipient:
+                transactions = [t for t in transactions if (t['sender'] == sender and t['recipient'] == recipient)]
+            
+            elif sender:
+                transactions = [t for t in transactions if t['sender'] == sender]
+
+            elif recipient:
+                transactions = [t for t in transactions if t['recipient'] == recipient]
+
+            if sort:
+                if 'datetime' in sort:
+                    transactions = sorted(transactions, key=lambda k: k['timestamp']) 
+            
+            return self._success(transactions)
+
         try:
-            transactions = self._get_transactions()
+            transactions = self._get_transactions(username=username, sender=sender, recipient=recipient, sort=sort)
             return self._success(transactions)
         except Exception as e:
             return self._error(f'Error fetching transactions: {e}')
 
     # Get all transactions
-    def _get_user_transactions(self, username):
-        args = {
-            'or': f'username,recipient:{str(username)}',
-            'sort': 'timestamp:desc'
-        }
-                
-        statement = self._create_sql('SELECT * FROM Transactions', args)
+    def _get_user_transactions(self, username = None):
+        username = request.args.get('username', username)
+        sender = request.args.get('sender', None)
+        recipient = request.args.get('recipient', None)
+        sort = request.args.get('sort', None)
 
-        rows = self._sql_fetch_all(CONFIG_TRANSACTIONS, statement[0], statement[1])
-        return [self._row_to_transaction(row) for row in rows]
+        if self.use_cache:
+            transactions = self._fetch_transactions()
+
+            if username:
+                transactions = [t for t in transactions if (t['sender'] == username or t['recipient'] == username)]
+
+            elif sender and recipient:
+                transactions = [t for t in transactions if (t['sender'] == sender and t['recipient'] == recipient)]
+            
+            elif sender:
+                transactions = [t for t in transactions if t['sender'] == sender]
+
+            elif recipient:
+                transactions = [t for t in transactions if t['recipient'] == recipient]
+
+            if sort:
+                if 'datetime' in sort:
+                    transactions = sorted(transactions, key=lambda k: k['timestamp']) 
+            
+            return transactions
+
+        return self._get_transactions(username=username, sort='timestamp:desc')
 
     # Get a transaction by its hash
-    def _get_transaction(self, hash_id):
+    def _get_transaction(self, hash_id: str):
+        if self.use_cache:
+            self._fetch_transactions()
+            transactions = self.transactions.copy()
+            transaction = [t for t in transactions if t['hash'] == hash_id][0] if 0 < len(transactions) else {}
+            return transaction
+
         row = self._sql_fetch_one(CONFIG_TRANSACTIONS, 'SELECT * FROM Transactions WHERE hash = ?', (hash_id,))
         
         if not row:
