@@ -9,7 +9,7 @@ from bcrypt import checkpw
 from re import match
 from collections import OrderedDict
 from operator import itemgetter
-from Server import DATABASE, DB_TIMEOUT, CONFIG_MINERAPI, CONFIG_TRANSACTIONS, API_JSON_URI, DUCO_PASS, NodeS_Overide, user_exists, jail, global_last_block_hash, now
+from Server import DATABASE, DB_TIMEOUT, CONFIG_MINERAPI, CONFIG_TRANSACTIONS, API_JSON_URI, DUCO_PASS, NodeS_Overide, user_exists, jail, global_last_block_hash, now, SAVE_TIME
 
 
 class DUCOApp(FastAPI):
@@ -17,8 +17,16 @@ class DUCOApp(FastAPI):
     def __init__(self):
         super(DUCOApp, self).__init__()
 
+        self.use_cache = True
+
         self.minersapi = []
         self.last_miner_update = 0
+
+        self.balances = []
+        self.last_balances_update = 0
+
+        self.transactions = []
+        self.last_transactions_update = 0
 
         self.add_api_route('/users/{username}', self.api_get_user_objects)
 
@@ -103,7 +111,7 @@ class DUCOApp(FastAPI):
     def _create_sql_limit(self, amount):
         return ('LIMIT ?', amount)
 
-    def _create_sql(self, sql, request_args):
+    def _create_sql(self, sql, request_args = {}):
         statement = [sql]
         args = []
         filter_count = 0
@@ -190,19 +198,31 @@ class DUCOApp(FastAPI):
             'balance': float(row[3])
         }
 
-    def _get_balances(self):            
-        statement = self._create_sql('SELECT * FROM Users', request.args)
+    def _get_balances(self, username: Optional[str] = None):            
+        statement = self._create_sql('SELECT * FROM Users')
 
         rows = self._sql_fetch_all(DATABASE, statement[0], statement[1])
         return [self._row_to_balance(row) for row in rows]
 
+    def _fetch_balances(self):
+        now = time()
+        if now - self.last_balances_update < SAVE_TIME:
+            return
+
+        print(f'fetching balances from {DATABASE}')
+        self.balances = self._get_balances()
+        self.last_balances_update = time()
+
     def api_get_balances(self):
+        if self.use_cache:
+            self._fetch_balances()
+            return self._success(self.balances)
+
         try:
             balances = self._get_balances()
             return self._success(balances)
         except Exception as e:
             return self._error(f'Error fetching balances: {e}')
-
 
     # Get the balance of a user
     def _get_user_balance(self, username):
@@ -214,6 +234,12 @@ class DUCOApp(FastAPI):
         return self._row_to_balance(row)
 
     def api_get_user_balance(self, username):
+        if self.use_cache:
+            self._fetch_balances()
+            balances = self.balances.copy()
+            balance = [b for b in balances if b['username'] == username][0] if 0 < len(balances) else {}
+            return self._success(balance)
+
         try:
             balance = self._get_user_balance(username)
             return self._success(balance)
@@ -259,7 +285,20 @@ class DUCOApp(FastAPI):
         rows = self._sql_fetch_all(CONFIG_TRANSACTIONS, statement[0], statement[1])
         return [self._row_to_transaction(row) for row in rows]
 
+    def _fetch_transactions(self, username: Optional[str] = None, sender: Optional[str] = None, recipient: Optional[str] = None, sort: Optional[str] = None):
+        now = time()
+        if now - self.last_transactions_update < 15:
+            return
+
+        print(f'fetching transactions from {CONFIG_TRANSACTIONS}')
+        self.transactions = self._get_transactions(username=username, sender=sender, recipient=recipient, sort=sort)
+        self.last_transactions_update = time()
+    
     def api_get_transactions(self, username: Optional[str] = None, sender: Optional[str] = None, recipient: Optional[str] = None, sort: Optional[str] = None):
+        if self.use_cache:
+            self._fetch_transactions(username=username, sender=sender, recipient=recipient, sort=sort)
+            return self._success(self.transactions)
+
         try:
             transactions = self._get_transactions(username=username, sender=sender, recipient=recipient, sort=sort)
             return self._success(transactions)
@@ -268,7 +307,7 @@ class DUCOApp(FastAPI):
 
     # Get all transactions
     def _get_user_transactions(self, username: str):
-        return self._get_transactions(username=username, sort='timestamp:desc')
+        return self.api_get_transactions(username=username, sort='timestamp:desc')
 
     # Get a transaction by its hash
     def _get_transaction(self, hash_id: str):
@@ -280,6 +319,12 @@ class DUCOApp(FastAPI):
         return self._row_to_transaction(row)
 
     def api_get_transaction(self, hash_id: str):
+        if self.use_cache:
+            self._fetch_transactions()
+            transactions = self.transactions.copy()
+            transaction = [t for t in transactions if t['hash'] == hash_id][0] if 0 < len(transactions) else {}
+            return self._success(transaction)
+
         try:
             transaction = self._get_transaction(hash_id)
             return self._success(transaction)
@@ -386,7 +431,7 @@ class DUCOApp(FastAPI):
     
     # Return API Data object
     def get_api_data(self):
-        return jsonify(self._get_api_data())
+        return self._get_api_data()
 
 
 app = DUCOApp()
