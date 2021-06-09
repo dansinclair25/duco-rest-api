@@ -221,8 +221,12 @@ class DUCOApp(Flask):
         return self.balances.copy()
 
     def api_get_balances(self):
+        if 'username' in request.args:
+            return self.api_get_user_balance(request.args['username'])
+
         if self.use_cache:
-            return self._success(self.balances)
+            balances = self._fetch_balances()
+            return self._success(balances)
 
         try:
             balances = self._get_balances()
