@@ -331,7 +331,8 @@ class DUCOApp(Flask):
 
             if sort:
                 if 'datetime' in sort:
-                    transactions = sorted(transactions, key=lambda k: k['timestamp']) 
+                    reverse = 'desc' not in sort
+                    transactions = sorted(transactions, key=lambda k: k['datetime'], reverse=reverse) 
             
             return self._success(transactions)
 
