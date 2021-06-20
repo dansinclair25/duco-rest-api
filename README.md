@@ -497,7 +497,7 @@ Fetch all balances sorted by amount (highest amount first):
 `/balances?sort=balance:desc`
 
 Fetch balance for `revox`:
-`/balances?username=revox`
+`/balances/revox`
 
 Fetch all miners for `dansinclair25`:
 `/miners?username=dansinclair25`
