@@ -10,6 +10,14 @@ from re import match
 from collections import OrderedDict
 from operator import itemgetter
 from Server import DATABASE, DB_TIMEOUT, CONFIG_MINERAPI, CONFIG_TRANSACTIONS, API_JSON_URI, DUCO_PASS, NodeS_Overide, user_exists, jail, global_last_block_hash, now, SAVE_TIME
+from flask_caching import Cache
+
+cache_conf = {
+    "DEBUG": False,
+    "CACHE_TYPE": "SpreadSASLMemcachedCache", # pylibmc module is required for "SpreadSASLMemcachedCache", if it cant be installed, "SimpleCache" can be used with a bit worse results
+    "CACHE_DEFAULT_TIMEOUT": 3,
+    "CACHE_IGNORE_ERRORS": True,
+}
 
 class DUCOApp(Flask):
 
@@ -498,5 +506,6 @@ class DUCOApp(Flask):
     def get_api_data(self):
         return jsonify(self._get_api_data())
 
-
+cache = Cache(config=cache_conf)
 app = DUCOApp()
+cache.init_app(app)
